@@ -1,17 +1,17 @@
 
+import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
   Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
 import { supabase } from '../lib/supabase';
 
 export default function LoginScreen() {
@@ -47,7 +47,7 @@ const handleLogin = async () => {
       return;
     }
 
-   router.replace('/');
+   router.replace('/(tabs)');
   } catch (error: any) {
     alert(error.message || 'Login failed.');
   }

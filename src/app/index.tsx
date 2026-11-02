@@ -1,19 +1,22 @@
+
+import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
   Animated,
   Easing,
+  Image,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { supabase } from '../lib/supabase';
 
 export default function HomeScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.7)).current;
   const textAnim = useRef(new Animated.Value(0)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     Animated.sequence([
       Animated.parallel([
@@ -37,29 +40,71 @@ export default function HomeScreen() {
       }),
     ]).start();
 
-
     Animated.loop(
-  Animated.sequence([
-    Animated.timing(floatAnim, {
-      toValue: -18,
-      duration: 1200,
-      useNativeDriver: true,
-    }),
-    Animated.timing(floatAnim, {
-      toValue: 0,
-      duration: 1200,
-      useNativeDriver: true,
-    }),
-  ])
-).start();
-    const timer = setTimeout(() => {
-      router.replace('/login');
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue: -18,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue: 0,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    let isActive = true;
+
+    const timer = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+
+        if (error) throw error;
+
+        if (!isActive) return;
+
+        if (data.session) {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('status')
+            .eq('id', data.session.user.id)
+            .single();
+
+          if (error || profileError) {
+            throw profileError || error;
+          }
+
+          if (!isActive) return;
+
+          if (profile.status === 'approved') {
+            router.replace('/(tabs)');
+            return;
+          }
+
+          await supabase.auth.signOut();
+
+          if (!isActive) return;
+        }
+
+        router.replace('/login');
+      } catch (error) {
+        console.error('Session check failed:', error);
+
+        await supabase.auth.signOut();
+
+        if (isActive) {
+          router.replace('/login');
+        }
+      }
     }, 5000);
 
-   return () => {
-  clearTimeout(timer);
-  floatAnim.stopAnimation();
-};
+    return () => {
+      isActive = false;
+      clearTimeout(timer);
+      floatAnim.stopAnimation();
+    };
   }, []);
 
   return (
@@ -72,10 +117,10 @@ export default function HomeScreen() {
           styles.logoContainer,
           {
             opacity: fadeAnim,
-           transform: [
-  { scale: scaleAnim },
-  { translateY: floatAnim },
-],
+            transform: [
+              { scale: scaleAnim },
+              { translateY: floatAnim },
+            ],
           },
         ]}
       >
@@ -102,8 +147,13 @@ export default function HomeScreen() {
           },
         ]}
       >
-        <Text style={styles.sloganOne}>Together we grow.</Text>
-        <Text style={styles.sloganTwo}>Together we shine.</Text>
+        <Text style={styles.sloganOne}>
+          Together we grow.
+        </Text>
+
+        <Text style={styles.sloganTwo}>
+          Together we shine.
+        </Text>
 
         <View style={styles.divider} />
 
@@ -124,6 +174,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     overflow: 'hidden',
   },
+
   topCircle: {
     position: 'absolute',
     width: 280,
@@ -133,6 +184,7 @@ const styles = StyleSheet.create({
     top: -150,
     right: -100,
   },
+
   bottomCircle: {
     position: 'absolute',
     width: 260,
@@ -142,18 +194,22 @@ const styles = StyleSheet.create({
     bottom: -140,
     left: -100,
   },
+
   logoContainer: {
     width: '100%',
     alignItems: 'center',
   },
+
   logo: {
     width: '100%',
     height: 300,
   },
+
   sloganContainer: {
     alignItems: 'center',
     marginTop: 15,
   },
+
   sloganOne: {
     fontSize: 27,
     fontWeight: 'bold',
@@ -174,6 +230,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textAlign: 'center',
   },
+
   divider: {
     width: 65,
     height: 4,
@@ -182,6 +239,7 @@ const styles = StyleSheet.create({
     marginTop: 25,
     marginBottom: 15,
   },
+
   footer: {
     fontSize: 11,
     fontWeight: '700',
