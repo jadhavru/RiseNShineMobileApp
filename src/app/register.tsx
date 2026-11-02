@@ -11,6 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import { router } from 'expo-router';
+import { supabase } from '../lib/supabase';
+
 export default function RegisterScreen() {
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
@@ -18,7 +20,54 @@ export default function RegisterScreen() {
   const [address, setAddress] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+
+const handleRegister = async () => {
+  setMessage('');
+
+  if (!name.trim() || !mobile.trim() || !email.trim() || !password) {
+    setMessage('Please fill all required fields.');
+    return;
+  }
+
+  if (password.length < 8) {
+    setMessage('Password must be at least 8 characters.');
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    setMessage('Passwords do not match.');
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+ const { data, error } = await supabase.auth.signUp({
+  email: email.trim(),
+  password,
+  options: {
+    data: {
+      full_name: name.trim(),
+      mobile: mobile.trim(),
+    },
+  },
+});
+
+    if (error) throw error;
+    if (!data.user) throw new Error('Registration failed. Please try again.');
+ 
+
+    setMessage('Registration successful! Please wait for Admin approval.');
+  } catch (error: any) {
+    setMessage(error.message || 'Registration failed.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <KeyboardAvoidingView
@@ -105,11 +154,16 @@ export default function RegisterScreen() {
             secureTextEntry={!showPassword}
           />
 
-          <TouchableOpacity style={styles.registerButton}>
+          <TouchableOpacity style={styles.registerButton} 
+           disabled={loading}
+           onPress={handleRegister}>
             <Text style={styles.registerButtonText}>
               CREATE ACCOUNT
             </Text>
           </TouchableOpacity>
+          {message ? (
+  <Text style={styles.message}>{message}</Text>
+) : null}
 <View style={styles.loginRow}>
   <Text style={styles.loginText}>Already a Member? </Text>
   <TouchableOpacity onPress={() => router.replace('/login')}>
@@ -241,5 +295,11 @@ loginLink: {
   color: '#E66B20',
   fontSize: 14,
   fontWeight: '800',
+},
+message: {
+  color: '#2E7D32',
+  fontSize: 13,
+  textAlign: 'center',
+  marginTop: 10,
 },
 });

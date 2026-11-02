@@ -12,10 +12,46 @@ import {
   ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
+import { supabase } from '../lib/supabase';
+
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+const handleLogin = async () => {
+  if (!email.trim() || !password) {
+    alert('Please enter email and password.');
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    if (error) throw error;
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('status')
+      .eq('id', data.user.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    if (profile.status !== 'approved') {
+      await supabase.auth.signOut();
+      alert('Your account is pending Admin approval.');
+      return;
+    }
+
+   router.replace('/');
+  } catch (error: any) {
+    alert(error.message || 'Login failed.');
+  }
+};
 
   return (
     <KeyboardAvoidingView
@@ -68,9 +104,12 @@ export default function LoginScreen() {
             <Text style={styles.forgotText}>Forgot Password?</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.loginButton}>
-            <Text style={styles.loginButtonText}>LOGIN  →</Text>
-          </TouchableOpacity>
+          <TouchableOpacity
+  style={styles.loginButton}
+  onPress={handleLogin}
+>
+  <Text style={styles.loginButtonText}>LOGIN  →</Text>
+</TouchableOpacity>
 
           <View style={styles.registerRow}>
             <Text style={styles.registerText}>New Member? </Text>
