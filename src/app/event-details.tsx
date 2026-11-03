@@ -1,15 +1,16 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Linking,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -67,15 +68,57 @@ export default function EventDetailsScreen() {
   const [totalExpenses, setTotalExpenses] = useState(0);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(true);
-
+const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+const [paymentQrUrl, setPaymentQrUrl] = useState('');
+const [paymentUpiId, setPaymentUpiId] = useState('');
+const [paymentSubmitted, setPaymentSubmitted] = useState(false);
+const [myContributions, setMyContributions] = useState<ContributionItem[]>([]);
+const [myTotalPaid, setMyTotalPaid] = useState(0);
   useEffect(() => {
     if (!id) return;
     loadEvent();
     loadContributions();
     loadExpenses();
     loadGallery();
+    loadPaymentSettings();
+    loadMyContributions();
+  
   }, [id]);
+ const loadMyContributions = async () => {
+  try {
+    const { data: userData, error: userError } =
+      await supabase.auth.getUser();
 
+    if (userError) throw userError;
+
+    const userId = userData.user?.id;
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from('event_contributions')
+      .select('id, member_id, amount, paid_at, payment_status')
+      .eq('event_id', id)
+      .eq('member_id', userId)
+      .order('paid_at', { ascending: false });
+
+    if (error) throw error;
+
+    const records = (data || []).map((item) => ({
+      ...item,
+      member_name: 'You',
+    })) as ContributionItem[];
+
+    setMyContributions(records);
+
+    const verifiedTotal = records
+      .filter((item) => item.payment_status === 'verified')
+      .reduce((sum, item) => sum + Number(item.amount), 0);
+
+    setMyTotalPaid(verifiedTotal);
+  } catch (error: any) {
+    console.log('My Contributions Error:', error.message);
+  }
+};
   const loadContributions = async () => {
     try {
       const { data, error } = await supabase
@@ -158,7 +201,31 @@ export default function EventDetailsScreen() {
       console.log('Expenses Error:', error.message);
     }
   };
+const loadPaymentSettings = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('setting_key, setting_value')
+      .in('setting_key', ['payment_qr_url', 'payment_upi_id']);
 
+    if (error) throw error;
+
+    const settings = data || [];
+
+    const qrUrl = settings.find(
+      (item) => item.setting_key === 'payment_qr_url'
+    )?.setting_value;
+
+    const upiId = settings.find(
+      (item) => item.setting_key === 'payment_upi_id'
+    )?.setting_value;
+
+    setPaymentQrUrl(qrUrl || '');
+    setPaymentUpiId(upiId || '');
+  } catch (error: any) {
+    console.log('Payment Settings Error:', error.message);
+  }
+};
   const loadGallery = async () => {
     try {
       setGalleryLoading(true);
@@ -354,6 +421,59 @@ export default function EventDetailsScreen() {
               ? 'Mandatory event fee'
               : 'Contribution is optional.'}
           </Text>
+
+<View style={styles.divider} />
+
+<Text style={styles.label}>Your Total Verified Payment</Text>
+<Text style={styles.amount}>
+  ₹{myTotalPaid.toLocaleString('en-IN')}
+</Text>
+
+<Text style={styles.label}>
+  Payment History ({myContributions.length})
+</Text>
+
+{myContributions.length === 0 ? (
+  <Text style={styles.contributionNote}>
+    No payments recorded yet.
+  </Text>
+) : (
+  myContributions.map((item) => (
+    <View key={item.id} style={styles.summaryRow}>
+      <View>
+        <Text style={styles.summaryLabel}>
+          ₹{Number(item.amount).toLocaleString('en-IN')}
+        </Text>
+        <Text style={styles.galleryDate}>
+          {formatDate(item.paid_at)}
+        </Text>
+      </View>
+
+      <Text
+        style={{
+          color: item.payment_status === 'verified' ? '#16865B' : '#E87532',
+          fontWeight: '800',
+        }}
+      >
+        {item.payment_status.toUpperCase()}
+      </Text>
+    </View>
+  ))
+)}
+          
+{myTotalPaid > 0 ? (
+  <View style={styles.paidStatusButton}>
+    <Text style={styles.paidStatusText}>✓ PAID</Text>
+  </View>
+) : (
+  <TouchableOpacity
+    style={styles.payNowButton}
+    onPress={() => setPaymentModalVisible(true)}
+  >
+    <Text style={styles.payNowButtonText}>Pay Now →</Text>
+  </TouchableOpacity>
+)}
+
         </View>
 
         <View style={styles.contributionCard}>
@@ -427,6 +547,69 @@ export default function EventDetailsScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+<Modal
+  visible={paymentModalVisible}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setPaymentModalVisible(false)}
+>
+  <View style={styles.modalOverlay}>
+    <View style={styles.paymentModal}>
+      <TouchableOpacity
+        style={styles.modalClose}
+        onPress={() => setPaymentModalVisible(false)}
+      >
+        <Text style={styles.modalCloseText}>✕</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.modalTitle}>Event Contribution</Text>
+      <Text style={styles.modalSubtitle}>
+        Scan QR Code to Pay
+      </Text>
+
+      {paymentQrUrl ? (
+        <Image
+          source={{ uri: paymentQrUrl }}
+          style={styles.paymentQr}
+          resizeMode="contain"
+        />
+      ) : (
+        <Text>QR Code not available</Text>
+      )}
+
+      <Text style={styles.upiLabel}>UPI ID</Text>
+      <Text style={styles.upiValue}>
+        {paymentUpiId || 'UPI ID not available'}
+      </Text>
+
+      <Text style={styles.paymentInstruction}>
+        Pay using Google Pay, PhonePe or Paytm.
+        After payment, inform the event admin.
+      </Text>
+
+   <TouchableOpacity
+  style={styles.paidButton}
+  onPress={() => setPaymentSubmitted(true)}
+>
+  <Text style={styles.paidButtonText}>I Have Paid</Text>
+</TouchableOpacity>
+
+{paymentSubmitted && (
+  <View style={styles.paymentSuccessBox}>
+    <Text style={styles.paymentSuccessTitle}>
+      Payment Submitted!
+    </Text>
+    <Text style={styles.paymentSuccessText}>
+      Please share your payment confirmation with the event admin.
+      Your contribution will be verified by admin.
+    </Text>
+  </View>
+)}
+    </View>
+  </View>
+</Modal>
+
     </ScrollView>
   );
 }
@@ -658,5 +841,120 @@ galleryDate: {
   color: '#8291A3',
   fontSize: 10,
   marginTop: 3,
+},
+payNowButton: {
+  backgroundColor: '#E87532',
+  padding: 14,
+  borderRadius: 12,
+  alignItems: 'center',
+  marginTop: 16,
+},
+payNowButtonText: {
+  color: '#FFFFFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
+modalOverlay: {
+  flex: 1,
+  backgroundColor: 'rgba(0,0,0,0.65)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  padding: 20,
+},
+paymentModal: {
+  width: '100%',
+  maxWidth: 400,
+  backgroundColor: '#FFFFFF',
+  borderRadius: 20,
+  padding: 22,
+  alignItems: 'center',
+},
+modalClose: {
+  alignSelf: 'flex-end',
+  padding: 5,
+},
+modalCloseText: {
+  color: '#123B63',
+  fontSize: 22,
+  fontWeight: '800',
+},
+modalTitle: {
+  color: '#123B63',
+  fontSize: 22,
+  fontWeight: '800',
+  marginTop: 5,
+},
+modalSubtitle: {
+  color: '#718096',
+  fontSize: 14,
+  marginTop: 7,
+},
+paymentQr: {
+  width: 220,
+  height: 220,
+  marginVertical: 15,
+},
+upiLabel: {
+  color: '#8291A3',
+  fontSize: 12,
+  fontWeight: '700',
+},
+upiValue: {
+  color: '#123B63',
+  fontSize: 18,
+  fontWeight: '800',
+  marginTop: 5,
+},
+paymentInstruction: {
+  color: '#718096',
+  fontSize: 13,
+  lineHeight: 20,
+  textAlign: 'center',
+  marginTop: 15,
+},
+paidButton: {
+  backgroundColor: '#16865B',
+  padding: 15,
+  borderRadius: 12,
+  width: '100%',
+  alignItems: 'center',
+  marginTop: 20,
+},
+paidButtonText: {
+  color: '#FFFFFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
+paymentSuccessBox: {
+  backgroundColor: '#E8F7EF',
+  padding: 14,
+  borderRadius: 12,
+  width: '100%',
+  marginTop: 15,
+},
+paymentSuccessTitle: {
+  color: '#16865B',
+  fontSize: 16,
+  fontWeight: '800',
+  marginBottom: 6,
+},
+paymentSuccessText: {
+  color: '#315B48',
+  fontSize: 13,
+  lineHeight: 20,
+},
+paidStatusButton: {
+  backgroundColor: '#E8F7EF',
+  padding: 14,
+  borderRadius: 12,
+  alignItems: 'center',
+  marginTop: 16,
+  borderWidth: 1,
+  borderColor: '#16865B',
+},
+paidStatusText: {
+  color: '#16865B',
+  fontSize: 16,
+  fontWeight: '800',
 },
 });

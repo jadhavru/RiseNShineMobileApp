@@ -2,15 +2,16 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Linking,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -34,6 +35,14 @@ type GalleryItem = {
   description: string | null;
 };
 
+type ContributionItem = {
+  id: string;
+  amount: number;
+  contribution_date: string;
+  payment_method: string | null;
+  payment_status: string;
+};
+
 export default function SocialWorkDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -44,10 +53,21 @@ export default function SocialWorkDetailsScreen() {
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(true);
 
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentQrUrl, setPaymentQrUrl] = useState('');
+  const [paymentUpiId, setPaymentUpiId] = useState('');
+  const [paymentSubmitted, setPaymentSubmitted] = useState(false);
+
+  const [myContributions, setMyContributions] = useState<ContributionItem[]>([]);
+  const [myTotalPaid, setMyTotalPaid] = useState(0);
+
   useEffect(() => {
     if (!id) return;
+
     loadProjectDetails();
     loadGallery();
+    loadPaymentSettings();
+    loadMyContributions();
   }, [id]);
 
   const loadProjectDetails = async () => {
@@ -104,6 +124,67 @@ export default function SocialWorkDetailsScreen() {
     }
   };
 
+  const loadPaymentSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('setting_key, setting_value')
+        .in('setting_key', ['payment_qr_url', 'payment_upi_id']);
+
+      if (error) throw error;
+
+      const settings = data || [];
+
+      const qrUrl = settings.find(
+        (item) => item.setting_key === 'payment_qr_url'
+      )?.setting_value;
+
+      const upiId = settings.find(
+        (item) => item.setting_key === 'payment_upi_id'
+      )?.setting_value;
+
+      setPaymentQrUrl(qrUrl || '');
+      setPaymentUpiId(upiId || '');
+    } catch (error: any) {
+      console.log('Payment Settings Error:', error.message);
+    }
+  };
+
+  const loadMyContributions = async () => {
+    try {
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
+
+      if (userError) throw userError;
+
+      const userId = userData.user?.id;
+      if (!userId) return;
+
+      const { data, error } = await supabase
+        .from('social_work_contributions')
+        .select(
+          'id, amount, contribution_date, payment_method, payment_status'
+        )
+        .eq('project_id', id)
+        .eq('member_id', userId)
+        .order('contribution_date', { ascending: false });
+
+      if (error) throw error;
+
+      const records = (data || []) as ContributionItem[];
+
+      setMyContributions(records);
+
+      const verifiedTotal = records
+        .filter((item) => item.payment_status === 'paid')
+        .reduce((sum, item) => sum + Number(item.amount), 0);
+
+      setMyTotalPaid(verifiedTotal);
+    } catch (error: any) {
+      console.log('My Social Work Contributions Error:', error.message);
+    }
+  };
+
   const openGalleryMedia = async (url: string) => {
     try {
       await Linking.openURL(url);
@@ -140,7 +221,6 @@ export default function SocialWorkDetailsScreen() {
               ? '▶'
               : '↗'}
           </Text>
-
           <Text style={styles.galleryType}>
             {item.media_type.toUpperCase()}
           </Text>
@@ -216,7 +296,6 @@ export default function SocialWorkDetailsScreen() {
           </Text>
         </View>
 
-        {/* Social Work Gallery */}
         <View style={styles.galleryCard}>
           <Text style={styles.sectionTitle}>
             Social Work Video & Photo Gallery
@@ -239,9 +318,7 @@ export default function SocialWorkDetailsScreen() {
           )}
         </View>
 
-        <Text style={styles.sectionTitle}>
-          Financial Summary
-        </Text>
+        <Text style={styles.sectionTitle}>Financial Summary</Text>
 
         <View style={styles.card}>
           <Text style={styles.label}>Total Collected</Text>
@@ -258,6 +335,74 @@ export default function SocialWorkDetailsScreen() {
           <Text style={styles.balance}>
             ₹{(totalCollected - totalExpenses).toFixed(2)}
           </Text>
+        </View>
+
+        {/* Your Social Work Payment Details */}
+        <Text style={styles.sectionTitle}>Your Contribution</Text>
+
+        <View style={styles.card}>
+          <Text style={styles.label}>Your Total Verified Payment</Text>
+          <Text style={styles.collected}>
+            ₹{myTotalPaid.toLocaleString('en-IN')}
+          </Text>
+
+          <View style={styles.divider} />
+
+          <Text style={styles.label}>
+            Payment History ({myContributions.length})
+          </Text>
+
+          {myContributions.length === 0 ? (
+            <Text style={styles.contributionNote}>
+              No payments recorded yet.
+            </Text>
+          ) : (
+            myContributions.map((item) => (
+              <View key={item.id} style={styles.summaryRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryLabel}>
+                    ₹{Number(item.amount).toLocaleString('en-IN')}
+                  </Text>
+                  <Text style={styles.galleryDate}>
+                    {formatDate(item.contribution_date)}
+                  </Text>
+                  <Text style={styles.galleryDate}>
+                    {item.payment_method
+                      ? item.payment_method.replace('_', ' ').toUpperCase()
+                      : 'Payment method not specified'}
+                  </Text>
+                </View>
+
+                <Text
+                  style={{
+                    color:
+                      item.payment_status === 'paid'
+                        ? '#16865B'
+                        : '#E87532',
+                    fontWeight: '800',
+                  }}
+                >
+                  {item.payment_status.toUpperCase()}
+                </Text>
+              </View>
+            ))
+          )}
+
+          {myTotalPaid > 0 ? (
+            <View style={styles.paidStatusButton}>
+              <Text style={styles.paidStatusText}>✓ PAID</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.payNowButton}
+              onPress={() => {
+                setPaymentSubmitted(false);
+                setPaymentModalVisible(true);
+              }}
+            >
+              <Text style={styles.payNowButtonText}>Pay Now →</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <TouchableOpacity
@@ -288,6 +433,67 @@ export default function SocialWorkDetailsScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Payment QR Modal */}
+      <Modal
+        visible={paymentModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPaymentModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.paymentModal}>
+            <TouchableOpacity
+              style={styles.modalClose}
+              onPress={() => setPaymentModalVisible(false)}
+            >
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.modalTitle}>Social Work Contribution</Text>
+            <Text style={styles.modalSubtitle}>Scan QR Code to Pay</Text>
+
+            {paymentQrUrl ? (
+              <Image
+                source={{ uri: paymentQrUrl }}
+                style={styles.paymentQr}
+                resizeMode="contain"
+              />
+            ) : (
+              <Text>QR Code not available</Text>
+            )}
+
+            <Text style={styles.upiLabel}>UPI ID</Text>
+            <Text style={styles.upiValue}>
+              {paymentUpiId || 'UPI ID not available'}
+            </Text>
+
+            <Text style={styles.paymentInstruction}>
+              Pay using Google Pay, PhonePe or Paytm.
+              After payment, inform the project admin.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.paidButton}
+              onPress={() => setPaymentSubmitted(true)}
+            >
+              <Text style={styles.paidButtonText}>I Have Paid</Text>
+            </TouchableOpacity>
+
+            {paymentSubmitted && (
+              <View style={styles.paymentSuccessBox}>
+                <Text style={styles.paymentSuccessTitle}>
+                  Payment Submitted!
+                </Text>
+                <Text style={styles.paymentSuccessText}>
+                  Please share your payment confirmation with the project
+                  admin. Your contribution will be verified by admin.
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -462,5 +668,148 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F0E8DC',
+    marginTop: 16,
+  },
+  contributionNote: {
+    color: '#718096',
+    fontSize: 13,
+    marginTop: 10,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0E8DC',
+  },
+  summaryLabel: {
+    color: '#123B63',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  payNowButton: {
+    backgroundColor: '#E87532',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  payNowButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  paidStatusButton: {
+    backgroundColor: '#E8F7EF',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#16865B',
+  },
+  paidStatusText: {
+    color: '#16865B',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  paymentModal: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 22,
+    alignItems: 'center',
+  },
+  modalClose: {
+    alignSelf: 'flex-end',
+    padding: 5,
+  },
+  modalCloseText: {
+    color: '#123B63',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  modalTitle: {
+    color: '#123B63',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  modalSubtitle: {
+    color: '#718096',
+    fontSize: 14,
+    marginTop: 8,
+    marginBottom: 15,
+  },
+  paymentQr: {
+    width: 210,
+    height: 210,
+    backgroundColor: '#FFFFFF',
+  },
+  upiLabel: {
+    color: '#718096',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 15,
+  },
+  upiValue: {
+    color: '#123B63',
+    fontSize: 16,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+  paymentInstruction: {
+    color: '#718096',
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 15,
+  },
+  paidButton: {
+    backgroundColor: '#15965A',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 18,
+  },
+  paidButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  paymentSuccessBox: {
+    backgroundColor: '#E8F7EF',
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 15,
+    width: '100%',
+  },
+  paymentSuccessTitle: {
+    color: '#16865B',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  paymentSuccessText: {
+    color: '#426B57',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 6,
   },
 });
