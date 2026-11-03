@@ -1,10 +1,10 @@
 import {
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 const COLORS = {
@@ -22,7 +22,7 @@ const COLORS = {
 export default function DashboardScreen() {
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
+      <StatusBar barStyle="light-content" />
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}

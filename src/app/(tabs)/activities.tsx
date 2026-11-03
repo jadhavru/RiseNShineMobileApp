@@ -20,12 +20,24 @@ type EventItem = {
   fee: number;
 };
 
+type SocialWorkItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  activity_date: string;
+  location: string | null;
+  status: string;
+};
+
 export default function ActivitiesScreen() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
+ const [socialWorks, setSocialWorks] = useState<SocialWorkItem[]>([]);
+const [socialLoading, setSocialLoading] = useState(true);
 
   useEffect(() => {
     loadEvents();
+      loadSocialWorks();
   }, []);
 
   const loadEvents = async () => {
@@ -46,6 +58,24 @@ export default function ActivitiesScreen() {
       setLoading(false);
     }
   };
+
+  const loadSocialWorks = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('social_work_projects')
+      .select('id, title, description, activity_date, location, status')
+      .in('status', ['planned', 'ongoing', 'completed'])
+      .order('activity_date', { ascending: true });
+
+    if (error) throw error;
+
+    setSocialWorks(data || []);
+  } catch (error) {
+    console.log('Social Work Error:', error);
+  } finally {
+    setSocialLoading(false);
+  }
+};
 
   return (
     <ScrollView style={styles.container}>
@@ -97,6 +127,53 @@ export default function ActivitiesScreen() {
             </TouchableOpacity>
           ))
         )}
+
+<View style={styles.sectionHeader}>
+  <Text style={styles.sectionTitle}>🤝 Social Work</Text>
+  <Text style={styles.sectionSubtitle}>
+    Together we make a difference.
+  </Text>
+</View>
+
+{socialLoading ? (
+  <ActivityIndicator size="large" color="#E87532" />
+) : socialWorks.length === 0 ? (
+  <Text style={styles.emptyText}>
+    No social work activities available.
+  </Text>
+) : (
+  socialWorks.map((item) => (
+   <TouchableOpacity
+  key={item.id}
+  style={styles.card}
+  onPress={() =>
+    router.push({
+      pathname: '/social-work-details',
+      params: { id: item.id },
+    })
+  }
+>
+      <Text style={styles.cardTitle}>{item.title}</Text>
+
+      <Text style={styles.description}>
+        {item.description || 'No description available.'}
+      </Text>
+
+      <Text style={styles.info}>
+        📅 {new Date(item.activity_date).toLocaleDateString()}
+      </Text>
+
+      <Text style={styles.info}>
+        📍 {item.location || 'Location not specified'}
+      </Text>
+
+      <Text style={styles.fee}>
+        Status: {item.status.toUpperCase()}
+      </Text>
+    </TouchableOpacity>
+  ))
+)}
+
       </View>
     </ScrollView>
   );
@@ -163,4 +240,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 30,
   },
+
+  sectionHeader: {
+  marginTop: 28,
+  marginBottom: 14,
+},
+sectionTitle: {
+  color: '#123B63',
+  fontSize: 22,
+  fontWeight: '800',
+},
+sectionSubtitle: {
+  color: '#718096',
+  fontSize: 13,
+  marginTop: 6,
+},
 });

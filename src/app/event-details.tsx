@@ -1,9 +1,10 @@
-
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Image,
+    Linking,
     ScrollView,
     StyleSheet,
     Text,
@@ -44,6 +45,17 @@ type MemberItem = {
   full_name: string;
 };
 
+type GalleryItem = {
+  id: string;
+  category: string;
+  related_record_id: string;
+  media_type: string;
+  title: string;
+  media_url: string;
+  media_date: string;
+  description: string | null;
+};
+
 export default function EventDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -53,11 +65,15 @@ export default function EventDetailsScreen() {
   const [totalCollected, setTotalCollected] = useState(0);
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [totalExpenses, setTotalExpenses] = useState(0);
+  const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(true);
 
   useEffect(() => {
+    if (!id) return;
     loadEvent();
     loadContributions();
     loadExpenses();
+    loadGallery();
   }, [id]);
 
   const loadContributions = async () => {
@@ -72,7 +88,6 @@ export default function EventDetailsScreen() {
       if (error) throw error;
 
       const contributionData = data || [];
-
       const memberIds = [
         ...new Set(
           contributionData
@@ -115,7 +130,6 @@ export default function EventDetailsScreen() {
         (sum, item) => sum + Number(item.amount),
         0
       );
-
       setTotalCollected(total);
     } catch (error: any) {
       console.log('Contributions Error:', error.message);
@@ -133,17 +147,37 @@ export default function EventDetailsScreen() {
       if (error) throw error;
 
       const expenseData = (data || []) as ExpenseItem[];
-
       setExpenses(expenseData);
 
       const total = expenseData.reduce(
         (sum, item) => sum + Number(item.amount),
         0
       );
-
       setTotalExpenses(total);
     } catch (error: any) {
       console.log('Expenses Error:', error.message);
+    }
+  };
+
+  const loadGallery = async () => {
+    try {
+      setGalleryLoading(true);
+
+      const { data, error } = await supabase
+        .from('gallery_media')
+        .select(
+          'id, category, related_record_id, media_type, title, media_url, media_date, description'
+        )
+        .eq('category', 'event')
+        .eq('related_record_id', id)
+        .order('media_date', { ascending: false });
+
+      if (error) throw error;
+      setGallery((data || []) as GalleryItem[]);
+    } catch (error: any) {
+      console.log('Event Gallery Error:', error.message);
+    } finally {
+      setGalleryLoading(false);
     }
   };
 
@@ -156,13 +190,67 @@ export default function EventDetailsScreen() {
         .single();
 
       if (error) throw error;
-
       setEvent(data as EventItem);
     } catch (error: any) {
       Alert.alert('Event Error', error.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const openGalleryMedia = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Error', 'Unable to open this media link.');
+    }
+  };
+
+  const formatDate = (date: string) =>
+    new Date(date).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+
+  const renderGalleryItem = (item: GalleryItem) => {
+    const isPhoto = item.media_type === 'photo';
+
+    return (
+      <View key={item.id} style={styles.galleryItem}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => openGalleryMedia(item.media_url)}
+          disabled={!item.media_url}
+        >
+          {isPhoto ? (
+            <Image
+              source={{ uri: item.media_url }}
+              style={styles.galleryPhoto}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.galleryLinkPreview}>
+              <Text style={styles.galleryPlayIcon}>
+                {item.media_type === 'youtube' || item.media_type === 'video'
+                  ? '▶'
+                  : '↗'}
+              </Text>
+              <Text style={styles.galleryType}>
+                {item.media_type.toUpperCase()}
+              </Text>
+              <Text style={styles.galleryOpenHint}>Tap to open</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <Text style={styles.galleryTitle}>{item.title}</Text>
+        <Text style={styles.galleryDate}>{formatDate(item.media_date)}</Text>
+        {!!item.description && (
+          <Text style={styles.galleryDescription}>{item.description}</Text>
+        )}
+      </View>
+    );
   };
 
   if (loading) {
@@ -188,12 +276,20 @@ export default function EventDetailsScreen() {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <Text style={styles.backText}>← Back</Text>
+          </TouchableOpacity>
+
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </View>
 
         <Text style={styles.headerLabel}>RISE N SHINE</Text>
         <Text style={styles.title}>{event.title}</Text>
@@ -225,6 +321,26 @@ export default function EventDetailsScreen() {
             {event.description || 'No description available.'}
           </Text>
         </View>
+
+<View style={styles.galleryCard}>
+  <Text style={styles.sectionTitle}>Event Video & Photo Gallery</Text>
+
+  {galleryLoading ? (
+    <ActivityIndicator color="#E87532" />
+  ) : gallery.length === 0 ? (
+    <Text style={styles.emptyGallery}>
+      No gallery media has been added for this event yet.
+    </Text>
+  ) : (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.galleryScroll}
+    >
+      {gallery.map(renderGalleryItem)}
+    </ScrollView>
+  )}
+</View>
 
         <View style={styles.contributionCard}>
           <Text style={styles.sectionTitle}>Event Contribution</Text>
@@ -341,19 +457,29 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
   backButton: {
     alignSelf: 'flex-start',
     backgroundColor: '#FFFFFF',
     paddingVertical: 9,
     paddingHorizontal: 15,
     borderRadius: 10,
-    marginBottom: 22,
   },
   backText: {
     color: '#123B63',
     fontSize: 15,
     fontWeight: '800',
   },
+ logo: {
+  width: 85,
+  height: 85,
+  borderRadius: 12,
+},
   headerLabel: {
     color: '#F5C49E',
     fontSize: 12,
@@ -403,6 +529,22 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#EDF0F3',
     marginVertical: 16,
+  },
+ 
+  
+ 
+  galleryOpenHint: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    marginTop: 5,
+  },
+ 
+  
+  galleryDescription: {
+    color: '#526174',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
   },
   contributionCard: {
     backgroundColor: '#FFFFFF',
@@ -461,4 +603,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+  galleryCard: {
+  backgroundColor: '#FFFFFF',
+  padding: 16,
+  borderRadius: 18,
+  marginTop: 18,
+  borderWidth: 1,
+  borderColor: '#F0E8DC',
+},
+emptyGallery: {
+  color: '#718096',
+  fontSize: 14,
+  lineHeight: 21,
+},
+galleryScroll: {
+  paddingRight: 8,
+},
+galleryItem: {
+  width: 125,
+  marginRight: 12,
+},
+galleryPhoto: {
+  width: 125,
+  height: 90,
+  borderRadius: 10,
+  backgroundColor: '#EDF0F3',
+},
+galleryLinkPreview: {
+  width: 125,
+  height: 90,
+  backgroundColor: '#123B63',
+  borderRadius: 10,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+galleryPlayIcon: {
+  color: '#FFFFFF',
+  fontSize: 27,
+  fontWeight: '800',
+},
+galleryType: {
+  color: '#F5C49E',
+  fontSize: 9,
+  fontWeight: '800',
+  marginTop: 4,
+},
+galleryTitle: {
+  color: '#123B63',
+  fontSize: 12,
+  fontWeight: '800',
+  marginTop: 7,
+},
+galleryDate: {
+  color: '#8291A3',
+  fontSize: 10,
+  marginTop: 3,
+},
 });
