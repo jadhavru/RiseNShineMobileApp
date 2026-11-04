@@ -1,5 +1,9 @@
 
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Print from 'expo-print';
 import { router, useLocalSearchParams } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -7,6 +11,7 @@ import {
   Image,
   Linking,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,7 +19,6 @@ import {
   View,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-
 type Project = {
   id: string;
   title: string;
@@ -60,7 +64,7 @@ export default function SocialWorkDetailsScreen() {
 
   const [myContributions, setMyContributions] = useState<ContributionItem[]>([]);
   const [myTotalPaid, setMyTotalPaid] = useState(0);
-
+const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
   useEffect(() => {
     if (!id) return;
 
@@ -184,6 +188,356 @@ export default function SocialWorkDetailsScreen() {
       console.log('My Social Work Contributions Error:', error.message);
     }
   };
+
+ const generateReceipt = async (item: ContributionItem) => {
+  if (item.payment_status !== 'paid') {
+    Alert.alert(
+      'Receipt unavailable',
+      'Only paid contributions have receipts.'
+    );
+    return;
+  }
+
+  try {
+    setReceiptLoadingId(item.id);
+
+    const { data: userData, error: userError } =
+      await supabase.auth.getUser();
+
+    if (userError) throw userError;
+
+    const userId = userData.user?.id;
+    if (!userId) throw new Error('Please sign in again.');
+
+    const { data: profile, error: profileError } = await supabase
+      .from('approved_member_directory')
+      .select('full_name, member_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+
+    const memberName = profile?.full_name || 'Member';
+    const memberCode = profile?.member_id || 'N/A';
+    const projectName = project?.title || 'Social Work Project';
+
+    const amount = Number(item.amount).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    const paymentDate = new Date(
+      item.contribution_date
+    ).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+
+    const paymentMethod = (
+      item.payment_method || 'N/A'
+    ).replace(/_/g, ' ').toUpperCase();
+
+    const receiptNumber = `RNS-SW-${item.id
+      .slice(0, 8)
+      .toUpperCase()}`;
+
+    const escapeHtml = (value: string) =>
+      value.replace(/[&<>"']/g, (character) => {
+        const entities: Record<string, string> = {
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        };
+        return entities[character];
+      });
+
+    // Load local Rise N Shine logo
+    const logoAsset = Asset.fromModule(
+      require('../../assets/logo.png')
+    );
+
+    await logoAsset.downloadAsync();
+
+    let logoUri = logoAsset.uri;
+
+    // Embed logo as Base64 for native PDF
+    if (Platform.OS !== 'web') {
+      const logoPath = logoAsset.localUri || logoAsset.uri;
+
+      const logoBase64 = await FileSystem.readAsStringAsync(
+        logoPath,
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        }
+      );
+
+      logoUri = `data:image/png;base64,${logoBase64}`;
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #123B63;
+            padding: 20px;
+          }
+
+          .receipt {
+            max-width: 520px;
+            margin: auto;
+            background: white;
+            border: 1.5px solid #123B63;
+            border-radius: 12px;
+            padding: 22px;
+          }
+
+          .logo {
+            display: block;
+            width: 110px;
+            height: 110px;
+            object-fit: contain;
+            margin: 0 auto 10px;
+          }
+
+          .brand {
+            text-align: center;
+            font-size: 23px;
+            font-weight: 900;
+            letter-spacing: 2px;
+          }
+
+          .tagline {
+            text-align: center;
+            color: #718096;
+            font-size: 10px;
+            margin-top: 5px;
+          }
+
+          .heading {
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            margin-top: 20px;
+          }
+
+          .paid {
+            text-align: center;
+            color: #16865B;
+            border: 2px solid #16865B;
+            border-radius: 6px;
+            padding: 7px;
+            font-size: 19px;
+            font-weight: 900;
+            letter-spacing: 3px;
+            margin: 15px auto;
+            width: 125px;
+          }
+
+          .amount {
+            text-align: center;
+            font-size: 29px;
+            font-weight: 900;
+            color: #16865B;
+            margin: 12px 0 18px;
+          }
+
+          .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 9px 0;
+            border-bottom: 1px solid #edf0f3;
+            font-size: 12px;
+          }
+
+          .label {
+            color: #718096;
+          }
+
+          .value {
+            color: #123B63;
+            font-weight: bold;
+            text-align: right;
+            max-width: 60%;
+            word-break: break-word;
+          }
+
+          .receipt-no {
+            text-align: center;
+            color: #718096;
+            font-size: 10px;
+            margin-top: 17px;
+          }
+
+          .footer {
+            text-align: center;
+            color: #718096;
+            font-size: 10px;
+            line-height: 1.6;
+            margin-top: 17px;
+          }
+
+          @media print {
+            body {
+              background: white;
+            }
+
+            .receipt {
+              border: 1.5px solid #123B63;
+              box-shadow: none;
+            }
+          }
+        </style>
+      </head>
+
+      <body>
+        <div class="receipt">
+
+          <img
+            class="logo"
+            src="${logoUri}"
+            alt="Rise N Shine Logo"
+          />
+
+          <div class="brand">RISE N SHINE</div>
+
+          <div class="tagline">
+            Together we grow. Together we shine.
+          </div>
+
+          <div class="heading">
+            SOCIAL WORK PAYMENT RECEIPT
+          </div>
+
+          <div class="paid">PAID</div>
+
+          <div class="amount">₹${amount}</div>
+
+          <div class="row">
+            <span class="label">Project Name</span>
+            <span class="value">${escapeHtml(projectName)}</span>
+          </div>
+
+          <div class="row">
+            <span class="label">Member Name</span>
+            <span class="value">${escapeHtml(memberName)}</span>
+          </div>
+
+          <div class="row">
+            <span class="label">Member ID</span>
+            <span class="value">${escapeHtml(memberCode)}</span>
+          </div>
+
+          <div class="row">
+            <span class="label">Payment Date</span>
+            <span class="value">${escapeHtml(paymentDate)}</span>
+          </div>
+
+          <div class="row">
+            <span class="label">Payment Method</span>
+            <span class="value">${escapeHtml(paymentMethod)}</span>
+          </div>
+
+          <div class="row">
+            <span class="label">Payment Status</span>
+            <span class="value" style="color:#16865B">
+              PAID
+            </span>
+          </div>
+
+          <div class="receipt-no">
+            Receipt No: ${receiptNumber}
+          </div>
+
+          <div class="footer">
+            Thank you for your contribution!<br />
+            Rise N Shine<br />
+            This is a computer-generated receipt.
+          </div>
+
+        </div>
+      </body>
+      </html>
+    `;
+
+    if (Platform.OS === 'web') {
+      const printFrame = document.createElement('iframe');
+
+      printFrame.style.position = 'fixed';
+      printFrame.style.right = '0';
+      printFrame.style.bottom = '0';
+      printFrame.style.width = '0';
+      printFrame.style.height = '0';
+      printFrame.style.border = '0';
+
+      document.body.appendChild(printFrame);
+
+      const frameDocument = printFrame.contentDocument;
+
+      if (!frameDocument) {
+        printFrame.remove();
+        throw new Error('Unable to create receipt document.');
+      }
+
+      frameDocument.open();
+      frameDocument.write(html);
+      frameDocument.close();
+
+      setTimeout(() => {
+        const frameWindow = printFrame.contentWindow;
+
+        if (frameWindow) {
+          frameWindow.focus();
+          frameWindow.print();
+        }
+
+        setTimeout(() => {
+          printFrame.remove();
+        }, 1500);
+      }, 700);
+    } else {
+      const file = await Print.printToFileAsync({
+        html,
+        base64: false,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Rise N Shine Social Work Receipt',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert(
+          'Sharing unavailable',
+          'PDF तयार झाला आहे, पण Share सुविधा उपलब्ध नाही.'
+        );
+      }
+    }
+  } catch (error: any) {
+    console.log('Social Work Receipt Error:', error);
+
+    Alert.alert(
+      'Receipt Error',
+      error?.message || 'Unable to generate receipt.'
+    );
+  } finally {
+    setReceiptLoadingId(null);
+  }
+};
 
   const openGalleryMedia = async (url: string) => {
     try {
@@ -373,17 +727,35 @@ export default function SocialWorkDetailsScreen() {
                   </Text>
                 </View>
 
-                <Text
-                  style={{
-                    color:
-                      item.payment_status === 'paid'
-                        ? '#16865B'
-                        : '#E87532',
-                    fontWeight: '800',
-                  }}
-                >
-                  {item.payment_status.toUpperCase()}
-                </Text>
+            <View style={{ alignItems: 'flex-end', gap: 8 }}>
+  <Text
+    style={{
+      color:
+        item.payment_status === 'paid'
+          ? '#16865B'
+          : '#E87532',
+      fontWeight: '800',
+    }}
+  >
+    {item.payment_status.toUpperCase()}
+  </Text>
+
+  {item.payment_status === 'paid' && (
+    <TouchableOpacity
+      style={styles.receiptButton}
+      onPress={() => generateReceipt(item)}
+      disabled={receiptLoadingId === item.id}
+    >
+      {receiptLoadingId === item.id ? (
+        <ActivityIndicator size="small" color="#FFFFFF" />
+      ) : (
+        <Text style={styles.receiptButtonText}>
+          PDF Receipt ↓
+        </Text>
+      )}
+    </TouchableOpacity>
+  )}
+</View>
               </View>
             ))
           )}
@@ -811,5 +1183,18 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     marginTop: 6,
+  },
+  receiptButton: {
+    backgroundColor: '#123B63',
+    paddingVertical: 8,
+    paddingHorizontal: 11,
+    borderRadius: 8,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  receiptButtonText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
   },
 });

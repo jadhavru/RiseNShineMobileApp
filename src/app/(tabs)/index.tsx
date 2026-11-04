@@ -18,12 +18,23 @@ type EventItem = {
   location: string | null;
 };
 
+type SocialWorkItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  activity_date: string | null;
+  location: string | null;
+};
+
 export default function HomeScreen() {
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [socialWorks, setSocialWorks] = useState<SocialWorkItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [socialLoading, setSocialLoading] = useState(true);
 
   useEffect(() => {
     loadUpcomingEvents();
+    loadSocialWorks();
   }, []);
 
   const loadUpcomingEvents = async () => {
@@ -43,6 +54,25 @@ export default function HomeScreen() {
       console.log('Upcoming Events Error:', error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSocialWorks = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('social_work_projects')
+        .select('id, title, description, activity_date, location')
+ 
+        .order('activity_date', { ascending: true })
+        .limit(5);
+
+      if (error) throw error;
+
+      setSocialWorks(data || []);
+    } catch (error: any) {
+      console.log('Social Work Error:', error.message);
+    } finally {
+      setSocialLoading(false);
     }
   };
 
@@ -94,25 +124,60 @@ export default function HomeScreen() {
         )}
 
         <Text style={styles.heading}>🤝 Social Work</Text>
-        <View style={styles.card}>
-          <Text style={styles.cardText}>
-            Small efforts. Big impact. Let's make a difference.
-          </Text>
-        </View>
 
-        <Text style={styles.heading}>🏆 Sports Activities</Text>
-        <View style={styles.card}>
-          <Text style={styles.cardText}>
-            Explore sports activities and celebrate teamwork.
-          </Text>
-        </View>
+        {socialLoading ? (
+          <ActivityIndicator size="large" color="#E87532" />
+        ) : socialWorks.length === 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.cardText}>
+              No Social Work activities available at the moment.
+            </Text>
+          </View>
+        ) : (
+          socialWorks.map((work) => (
+            <TouchableOpacity
+              key={work.id}
+              style={styles.card}
+              onPress={() =>
+                router.push({
+                  pathname: '/social-work-details',
+                  params: { id: work.id },
+                })
+              }
+            >
+              <Text style={styles.cardTitle}>{work.title}</Text>
 
-        <Text style={styles.heading}>🖼️ Gallery</Text>
-        <View style={styles.card}>
+              {work.activity_date ? (
+                <Text style={styles.cardText}>
+                  📅 {new Date(work.activity_date).toLocaleDateString('en-IN')}
+                </Text>
+              ) : null}
+
+              <Text style={styles.cardText}>
+                📍 {work.location || 'Location not specified'}
+              </Text>
+
+              {work.description ? (
+                <Text style={styles.cardText}>
+                  {work.description}
+                </Text>
+              ) : null}
+
+              <Text style={styles.link}>View Social Work Details →</Text>
+            </TouchableOpacity>
+          ))
+        )}
+
+        <TouchableOpacity
+          style={styles.card}
+          onPress={() => router.push('/gallery')}
+        >
+          <Text style={styles.heading}>🖼️ Gallery</Text>
           <Text style={styles.cardText}>
             Memories and moments from our community.
           </Text>
-        </View>
+          <Text style={styles.link}>View Gallery →</Text>
+        </TouchableOpacity>
 
         <Text style={styles.footer}>ONE TEAM • ONE FAMILY ❤️</Text>
       </View>

@@ -78,12 +78,12 @@ export default function DashboardScreen() {
               <Text style={styles.arrow}>Explore →</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.activityCard, { backgroundColor: COLORS.peach }]}>
+           {/* <TouchableOpacity style={[styles.activityCard, { backgroundColor: COLORS.peach }]}>
               <Text style={styles.activityIcon}>🏆</Text>
               <Text style={styles.activityTitle}>Sports Activities</Text>
               <Text style={styles.activityDesc}>Play, grow and achieve</Text>
               <Text style={styles.arrow}>Explore →</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
             <TouchableOpacity style={[styles.activityCard, { backgroundColor: COLORS.purple }]}>
               <Text style={styles.activityIcon}>🖼️</Text>
