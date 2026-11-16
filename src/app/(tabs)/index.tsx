@@ -1,6 +1,6 @@
 
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -11,175 +11,184 @@ import {
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 
-type EventItem = {
-  id: string;
-  title: string;
-  event_date: string;
-  location: string | null;
-};
-
-type SocialWorkItem = {
-  id: string;
-  title: string;
-  description: string | null;
-  activity_date: string | null;
-  location: string | null;
-};
-
 export default function HomeScreen() {
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [socialWorks, setSocialWorks] = useState<SocialWorkItem[]>([]);
+  const [eventCount, setEventCount] = useState(0);
+  const [socialCount, setSocialCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [socialLoading, setSocialLoading] = useState(true);
 
-  useEffect(() => {
-    loadUpcomingEvents();
-    loadSocialWorks();
-  }, []);
-
-  const loadUpcomingEvents = async () => {
+  const loadCounts = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('events')
-        .select('id, title, event_date, location')
-        .eq('status', 'published')
-        .gte('event_date', new Date().toISOString())
-        .order('event_date', { ascending: true })
-        .limit(2);
+      setLoading(true);
 
-      if (error) throw error;
+      const now = new Date().toISOString();
 
-      setEvents(data || []);
+      const [eventsResult, socialResult] = await Promise.all([
+        supabase
+          .from('events')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'published')
+          .gte('event_date', now),
+
+        supabase
+          .from('social_work_projects')
+          .select('id', { count: 'exact', head: true })
+          .gte('activity_date', now),
+      ]);
+
+      if (eventsResult.error) throw eventsResult.error;
+      if (socialResult.error) throw socialResult.error;
+
+      setEventCount(eventsResult.count || 0);
+      setSocialCount(socialResult.count || 0);
     } catch (error: any) {
-      console.log('Upcoming Events Error:', error.message);
+      console.log('Dashboard Error:', error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadSocialWorks = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('social_work_projects')
-        .select('id, title, description, activity_date, location')
- 
-        .order('activity_date', { ascending: true })
-        .limit(5);
-
-      if (error) throw error;
-
-      setSocialWorks(data || []);
-    } catch (error: any) {
-      console.log('Social Work Error:', error.message);
-    } finally {
-      setSocialLoading(false);
-    }
-  };
+  useFocusEffect(
+    useCallback(() => {
+      loadCounts();
+    }, [loadCounts])
+  );
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.header}>
         <Text style={styles.brand}>RISE N SHINE</Text>
-        <Text style={styles.welcome}>Welcome Back! 👋</Text>
+
+        <Text style={styles.welcome}>
+          Welcome Back! 👋
+        </Text>
+
         <Text style={styles.subtitle}>
           Together we grow. Together we shine.
         </Text>
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.sectionTitle}>Our Community</Text>
+        <Text style={styles.sectionTitle}>
+          Our Community
+        </Text>
 
-        <Text style={styles.heading}>📅 Upcoming Events</Text>
+        <View style={styles.cardContainer}>
+          {/* Upcoming Events */}
+          <TouchableOpacity
+            style={[styles.card, styles.eventCard]}
+            activeOpacity={0.8}
+            onPress={() => router.push('/events')}
+          >
+            <Text style={styles.cardIcon}>📅</Text>
 
-        {loading ? (
-          <ActivityIndicator size="large" color="#E87532" />
-        ) : events.length === 0 ? (
-          <View style={styles.card}>
-            <Text style={styles.cardText}>
-              No upcoming events at the moment.
+            <Text style={styles.cardCount}>
+              {loading ? '...' : eventCount}
             </Text>
-          </View>
-        ) : (
-          events.map((event) => (
-            <TouchableOpacity
-              key={event.id}
-              style={styles.card}
-              onPress={() =>
-                router.push({
-                  pathname: '/event-details',
-                  params: { id: event.id },
-                })
-              }
-            >
-              <Text style={styles.cardTitle}>{event.title}</Text>
-              <Text style={styles.cardText}>
-                {new Date(event.event_date).toLocaleString('en-IN')}
-              </Text>
-              <Text style={styles.cardText}>
-                📍 {event.location || 'Location not specified'}
-              </Text>
-              <Text style={styles.link}>View Event Details →</Text>
-            </TouchableOpacity>
-          ))
+
+            <Text style={styles.cardTitle}>
+              Upcoming Events
+            </Text>
+
+            <Text style={styles.cardLink}>
+              View Events →
+            </Text>
+          </TouchableOpacity>
+
+          {/* Upcoming Social Work */}
+          <TouchableOpacity
+            style={[styles.card, styles.socialCard]}
+            activeOpacity={0.8}
+            onPress={() => router.push('/social-work')}
+          >
+            <Text style={styles.cardIcon}>🤝</Text>
+
+            <Text style={styles.cardCount}>
+              {loading ? '...' : socialCount}
+            </Text>
+
+            <Text style={styles.cardTitle}>
+              Upcoming Social Work
+            </Text>
+
+            <Text style={styles.cardLink}>
+              View Activities →
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {loading && (
+          <ActivityIndicator
+            size="small"
+            color="#E87532"
+            style={{ marginTop: 15 }}
+          />
         )}
 
-        <Text style={styles.heading}>🤝 Social Work</Text>
-
-        {socialLoading ? (
-          <ActivityIndicator size="large" color="#E87532" />
-        ) : socialWorks.length === 0 ? (
-          <View style={styles.card}>
-            <Text style={styles.cardText}>
-              No Social Work activities available at the moment.
-            </Text>
-          </View>
-        ) : (
-          socialWorks.map((work) => (
-            <TouchableOpacity
-              key={work.id}
-              style={styles.card}
-              onPress={() =>
-                router.push({
-                  pathname: '/social-work-details',
-                  params: { id: work.id },
-                })
-              }
-            >
-              <Text style={styles.cardTitle}>{work.title}</Text>
-
-              {work.activity_date ? (
-                <Text style={styles.cardText}>
-                  📅 {new Date(work.activity_date).toLocaleDateString('en-IN')}
-                </Text>
-              ) : null}
-
-              <Text style={styles.cardText}>
-                📍 {work.location || 'Location not specified'}
-              </Text>
-
-              {work.description ? (
-                <Text style={styles.cardText}>
-                  {work.description}
-                </Text>
-              ) : null}
-
-              <Text style={styles.link}>View Social Work Details →</Text>
-            </TouchableOpacity>
-          ))
-        )}
+        {/* Entertainment Zone */}
+        <Text style={styles.sectionTitle}>
+          Entertainment Zone
+        </Text>
 
         <TouchableOpacity
-          style={styles.card}
-          onPress={() => router.push('/gallery')}
+          style={styles.gameCard}
+          activeOpacity={0.85}
+          onPress={() => router.push('/game-zone')}
         >
-          <Text style={styles.heading}>🖼️ Gallery</Text>
-          <Text style={styles.cardText}>
-            Memories and moments from our community.
-          </Text>
-          <Text style={styles.link}>View Gallery →</Text>
+          <View style={styles.gameContent}>
+            <View style={styles.gameIconBox}>
+              <Text style={styles.gameIcon}>🎮</Text>
+            </View>
+
+            <View style={styles.gameTextContainer}>
+              <Text style={styles.gameTitle}>
+                Game Zone
+              </Text>
+
+              <Text style={styles.gameSubtitle}>
+                Play Games • Have Fun • Challenge Yourself
+              </Text>
+
+              <View style={styles.freeBadge}>
+                <Text style={styles.freeBadgeText}>
+                  FREE FOR ALL MEMBERS
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.gameArrow}>➜</Text>
+          </View>
+
+          {/* New Games */}
+          <View style={styles.gameFooter}>
+            <View style={styles.gameItem}>
+              <Text style={styles.gameItemIcon}>⭕</Text>
+              <Text style={styles.gameFooterText}>
+                Tic Tac Toe
+              </Text>
+            </View>
+
+            <View style={styles.gameItem}>
+              <Text style={styles.gameItemIcon}>🧠</Text>
+              <Text style={styles.gameFooterText}>
+                Memory Match
+              </Text>
+            </View>
+
+            <View style={styles.gameItem}>
+              <Text style={styles.gameItemIcon}>🐍</Text>
+              <Text style={styles.gameFooterText}>
+                Snake Game
+              </Text>
+            </View>
+          </View>
         </TouchableOpacity>
 
-        <Text style={styles.footer}>ONE TEAM • ONE FAMILY ❤️</Text>
+        <Text style={styles.footer}>
+          ONE TEAM • ONE FAMILY ❤️
+        </Text>
       </View>
     </ScrollView>
   );
@@ -190,6 +199,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFF9F0',
   },
+
   header: {
     backgroundColor: '#123B63',
     paddingTop: 55,
@@ -198,71 +208,196 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
   },
+
   brand: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 2,
   },
+
   welcome: {
     color: '#FFFFFF',
     fontSize: 27,
     fontWeight: '800',
     marginTop: 25,
   },
+
   subtitle: {
     color: '#F5C49E',
     fontSize: 13,
     marginTop: 8,
   },
+
   content: {
     padding: 20,
   },
+
   sectionTitle: {
     color: '#123B63',
     fontSize: 21,
     fontWeight: '800',
-    marginBottom: 16,
+    marginBottom: 18,
+    marginTop: 8,
   },
-  heading: {
-    color: '#123B63',
-    fontSize: 17,
-    fontWeight: '800',
-    marginTop: 12,
+
+  cardContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  card: {
+    flex: 1,
+    padding: 15,
+    borderRadius: 18,
+    minHeight: 180,
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+
+  eventCard: {
+    backgroundColor: '#FFF0E5',
+    borderColor: '#F5D3BD',
+  },
+
+  socialCard: {
+    backgroundColor: '#E8F4ED',
+    borderColor: '#C9E4D3',
+  },
+
+  cardIcon: {
+    fontSize: 28,
     marginBottom: 10,
   },
-  card: {
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-    borderRadius: 18,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#F0E8DC',
+
+  cardCount: {
+    color: '#123B63',
+    fontSize: 34,
+    fontWeight: '900',
   },
+
   cardTitle: {
     color: '#123B63',
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '800',
+    marginTop: 5,
   },
-  cardText: {
-    color: '#718096',
-    fontSize: 13,
-    marginTop: 8,
-    lineHeight: 20,
-  },
-  link: {
+
+  cardLink: {
     color: '#E87532',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     marginTop: 12,
   },
+
+  // Game Zone Styles
+
+  gameCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D6E9FA',
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#123B63',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+
+  gameContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+
+  gameIconBox: {
+    width: 58,
+    height: 58,
+    borderRadius: 17,
+    backgroundColor: '#E9F5FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 13,
+  },
+
+  gameIcon: {
+    fontSize: 32,
+  },
+
+  gameTextContainer: {
+    flex: 1,
+  },
+
+  gameTitle: {
+    color: '#123B63',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+
+  gameSubtitle: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 5,
+    lineHeight: 16,
+  },
+
+  freeBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F4ED',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginTop: 9,
+  },
+
+  freeBadgeText: {
+    color: '#16834A',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+
+  gameArrow: {
+    color: '#E87532',
+    fontSize: 25,
+    fontWeight: '900',
+    marginLeft: 5,
+  },
+
+  gameFooter: {
+    backgroundColor: '#F2F8FD',
+    paddingHorizontal: 8,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    borderTopWidth: 1,
+    borderTopColor: '#DCEBF7',
+  },
+
+  gameItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+
+  gameItemIcon: {
+    fontSize: 20,
+    marginBottom: 5,
+  },
+
+  gameFooterText: {
+    color: '#123B63',
+    fontSize: 10,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+
   footer: {
     textAlign: 'center',
     color: '#E87532',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1.5,
-    marginTop: 18,
+    marginTop: 40,
     marginBottom: 25,
   },
 });

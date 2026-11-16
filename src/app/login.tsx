@@ -100,9 +100,14 @@ const handleLogin = async () => {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.forgotButton}>
-            <Text style={styles.forgotText}>Forgot Password?</Text>
-          </TouchableOpacity>
+<TouchableOpacity
+  style={styles.forgotButton}
+  onPress={() => router.push('/forgot-password' as any)}
+>
+  <Text style={styles.forgotText}>
+    Forgot Password?
+  </Text>
+</TouchableOpacity>
 
           <TouchableOpacity
   style={styles.loginButton}
