@@ -2,11 +2,11 @@
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -122,6 +122,12 @@ export default function GameZoneScreen() {
   const [snakeScore, setSnakeScore] = useState(0);
   const [snakeRunning, setSnakeRunning] = useState(false);
   const [snakeOver, setSnakeOver] = useState(false);
+
+  // Keep the latest Snake values available to the game timer.
+  const snakeRef = useRef(snake);
+  const foodRef = useRef(food);
+  const directionRef = useRef<Direction>('RIGHT');
+  const directionChangedRef = useRef(false);
 
   // TIC TAC TOE RESULT
   const ticWinner = getWinner(ticBoard);
@@ -471,54 +477,57 @@ export default function GameZoneScreen() {
     if (selectedGame !== 'snake' || !snakeRunning) return;
 
     const timer = setInterval(() => {
-      setSnake((currentSnake) => {
-        const head = currentSnake[0];
+      const currentSnake = snakeRef.current;
+      const currentFood = foodRef.current;
+      const currentDirection = directionRef.current;
+      const head = currentSnake[0];
 
-        const directions = {
-          UP: { x: head.x, y: head.y - 1 },
-          DOWN: { x: head.x, y: head.y + 1 },
-          LEFT: { x: head.x - 1, y: head.y },
-          RIGHT: { x: head.x + 1, y: head.y },
-        };
+      // Allow one direction change for each movement step.
+      directionChangedRef.current = false;
 
-        const nextHead = directions[snakeDirection];
-        const eating = nextHead.x === food.x && nextHead.y === food.y;
+      const directions: Record<Direction, { x: number; y: number }> = {
+        UP: { x: head.x, y: head.y - 1 },
+        DOWN: { x: head.x, y: head.y + 1 },
+        LEFT: { x: head.x - 1, y: head.y },
+        RIGHT: { x: head.x + 1, y: head.y },
+      };
 
-        const body = eating
-          ? currentSnake
-          : currentSnake.slice(0, -1);
+      const nextHead = directions[currentDirection];
+      const eating = nextHead.x === currentFood.x && nextHead.y === currentFood.y;
+      const body = eating ? currentSnake : currentSnake.slice(0, -1);
 
-        const hitWall =
-          nextHead.x < 0 ||
-          nextHead.x >= 10 ||
-          nextHead.y < 0 ||
-          nextHead.y >= 10;
+      const hitWall =
+        nextHead.x < 0 ||
+        nextHead.x >= 10 ||
+        nextHead.y < 0 ||
+        nextHead.y >= 10;
 
-        const hitBody = body.some(
-          (part) => part.x === nextHead.x && part.y === nextHead.y
-        );
+      const hitBody = body.some(
+        (part) => part.x === nextHead.x && part.y === nextHead.y
+      );
 
-        if (hitWall || hitBody) {
-          setSnakeRunning(false);
-          setSnakeOver(true);
-          return currentSnake;
-        }
+      if (hitWall || hitBody) {
+        setSnakeRunning(false);
+        setSnakeOver(true);
+        return;
+      }
 
-        const nextSnake = [nextHead, ...currentSnake];
+      const nextSnake = [nextHead, ...currentSnake];
+      if (!eating) {
+        nextSnake.pop();
+      } else {
+        setSnakeScore((score) => score + 10);
+        const nextFood = createFood(nextSnake);
+        foodRef.current = nextFood;
+        setFood(nextFood);
+      }
 
-        if (!eating) {
-          nextSnake.pop();
-        } else {
-          setSnakeScore((score) => score + 10);
-          setFood(createFood(nextSnake));
-        }
-
-        return nextSnake;
-      });
+      snakeRef.current = nextSnake;
+      setSnake(nextSnake);
     }, 220);
 
     return () => clearInterval(timer);
-  }, [selectedGame, snakeRunning, snakeDirection, food]);
+  }, [selectedGame, snakeRunning]);
 
   // -----------------------------------------
   // SAVE SNAKE RESULT
@@ -619,9 +628,15 @@ export default function GameZoneScreen() {
     snakeSaved.current = false;
 
     const newSnake = createSnake();
+    const newFood = createFood(newSnake);
+
+    snakeRef.current = newSnake;
+    foodRef.current = newFood;
+    directionRef.current = 'RIGHT';
+    directionChangedRef.current = false;
 
     setSnake(newSnake);
-    setFood(createFood(newSnake));
+    setFood(newFood);
     setSnakeDirection('RIGHT');
     setSnakeScore(0);
     setSnakeOver(false);
@@ -641,8 +656,12 @@ export default function GameZoneScreen() {
       RIGHT: 'LEFT',
     };
 
-    if (opposite[direction] === snakeDirection) return;
+    // Ignore reverse turns and multiple turns within the same movement step.
+    if (opposite[direction] === directionRef.current) return;
+    if (directionChangedRef.current) return;
 
+    directionRef.current = direction;
+    directionChangedRef.current = true;
     setSnakeDirection(direction);
   };
 

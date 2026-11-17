@@ -40,6 +40,7 @@ type SocialContribution = {
 
 type ActivityItem = {
   id: string;
+  targetId: string;
   title: string;
   type: 'Event' | 'Social Work';
   date: string;
@@ -172,6 +173,10 @@ export default function ActivitiesScreen() {
       // Prepare Activity History
       const eventActivities: ActivityItem[] = eventRows.map((item) => ({
         id: `event-${item.id}`,
+
+        // Actual event ID for opening event details
+        targetId: item.event_id,
+
         title: item.event?.title || 'Event',
         type: 'Event',
         date: item.created_at,
@@ -182,6 +187,10 @@ export default function ActivitiesScreen() {
 
       const socialActivities: ActivityItem[] = socialRows.map((item) => ({
         id: `social-${item.id}`,
+
+        // Actual social work project ID for opening project details
+        targetId: item.project_id,
+
         title: item.project?.title || 'Social Work',
         type: 'Social Work',
         date: item.created_at,
@@ -356,23 +365,21 @@ export default function ActivitiesScreen() {
             </Text>
           </View>
         ) : (
-          activities.map((item) => (
+          activities.slice(0, 5).map((item) => (
             <TouchableOpacity
               key={item.id}
               activeOpacity={0.8}
               style={styles.historyCard}
               onPress={() => {
                 if (item.type === 'Event') {
-                  const eventId = item.id.replace('event-', '');
                   router.push({
                     pathname: '/event-details',
-                    params: { id: eventId },
+                    params: { id: item.targetId },
                   });
                 } else {
-                  const projectId = item.id.replace('social-', '');
                   router.push({
                     pathname: '/social-work-details',
-                    params: { id: projectId },
+                    params: { id: item.targetId },
                   });
                 }
               }}
