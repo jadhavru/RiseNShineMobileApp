@@ -1,8 +1,9 @@
 
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Platform,
   StyleSheet,
@@ -13,7 +14,33 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
+type RecoveryParams = {
+  code?: string | string[];
+  access_token?: string | string[];
+  refresh_token?: string | string[];
+  type?: string | string[];
+  token_hash?: string | string[];
+  error?: string | string[];
+  error_description?: string | string[];
+};
+
+const getValue = (
+  value?: string | string[]
+): string => {
+  return Array.isArray(value) ? value[0] || '' : value || '';
+};
+
 export default function ResetPasswordScreen() {
+  const params = useLocalSearchParams<RecoveryParams>();
+
+  const routeCode = getValue(params.code);
+  const routeAccessToken = getValue(params.access_token);
+  const routeRefreshToken = getValue(params.refresh_token);
+  const routeType = getValue(params.type);
+  const routeTokenHash = getValue(params.token_hash);
+  const routeError = getValue(params.error);
+  const routeErrorDescription = getValue(params.error_description);
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,20 +48,15 @@ export default function ResetPasswordScreen() {
   const [sessionReady, setSessionReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handledUrls = useRef(new Set<string>());
+  const handledLinks = useRef(new Set<string>());
 
   useEffect(() => {
     let mounted = true;
 
     const setupRecovery = async (url: string) => {
-      if (handledUrls.current.has(url)) return;
-
-      handledUrls.current.add(url);
+      let recoveryKey = '';
 
       try {
-        setChecking(true);
-        setErrorMessage('');
-
         const parsedUrl = new URL(url);
 
         const query = parsedUrl.searchParams;
@@ -43,15 +65,36 @@ export default function ResetPasswordScreen() {
         );
 
         const getParam = (key: string) =>
-          query.get(key) || hash.get(key);
+          query.get(key) || hash.get(key) || '';
 
+        const code = getParam('code');
         const accessToken = getParam('access_token');
         const refreshToken = getParam('refresh_token');
         const type = getParam('type');
-        const code = query.get('code');
+        const tokenHash = getParam('token_hash');
 
-       const authError =
-  getParam('error_description') || getParam('error');
+        const authError =
+          getParam('error_description') ||
+          getParam('error');
+
+        recoveryKey = code
+          ? `code:${code}`
+          : accessToken
+          ? `access:${accessToken}`
+          : tokenHash
+          ? `hash:${tokenHash}`
+          : `url:${url}`;
+
+        if (handledLinks.current.has(recoveryKey)) {
+          return;
+        }
+
+        handledLinks.current.add(recoveryKey);
+
+        if (mounted) {
+          setChecking(true);
+          setErrorMessage('');
+        }
 
         if (authError) {
           throw new Error(authError);
@@ -62,7 +105,13 @@ export default function ResetPasswordScreen() {
             await supabase.auth.exchangeCodeForSession(code);
 
           if (error) throw error;
+        } else if (tokenHash) {
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: 'recovery',
+          });
 
+          if (error) throw error;
         } else if (
           accessToken &&
           refreshToken &&
@@ -74,7 +123,6 @@ export default function ResetPasswordScreen() {
           });
 
           if (error) throw error;
-
         } else {
           throw new Error(
             'Invalid or expired reset link. Please request a new one.'
@@ -83,15 +131,13 @@ export default function ResetPasswordScreen() {
 
         if (mounted) {
           setSessionReady(true);
+          setErrorMessage('');
         }
-
       } catch (error: any) {
         if (mounted) {
           setSessionReady(false);
-          handledUrls.current.delete(url);
           setErrorMessage(
-            
-            error.message || 'Unable to verify reset link.'
+            error?.message || 'Unable to verify reset link.'
           );
         }
       } finally {
@@ -101,61 +147,133 @@ export default function ResetPasswordScreen() {
       }
     };
 
-    const handleIncomingUrl = (url: string) => {
-      setupRecovery(url);
-    };
-
     const subscription = Linking.addEventListener(
       'url',
       ({ url }) => {
-        handleIncomingUrl(url);
+        void setupRecovery(url);
       }
     );
 
-const initialize = async () => {
-  try {
-    let initialUrl: string | null = null;
+    const initialize = async () => {
+      try {
+        const hasRouteParams = Boolean(
+          routeCode ||
+          routeAccessToken ||
+          routeRefreshToken ||
+          routeTokenHash ||
+          routeError ||
+          routeErrorDescription
+        );
 
-    if (Platform.OS === 'web') {
-      initialUrl = window.location.href;
-    } else {
-      initialUrl = (await Linking.getInitialURL()) ?? null;
-    }
+        if (hasRouteParams) {
+          const routeUrl = new URL(
+            'risenshinemobile://reset-password'
+          );
 
-    if (initialUrl) {
-      await setupRecovery(initialUrl);
-    } else if (mounted) {
-      setErrorMessage(
-        'Reset link not found. Please request a new link.'
-      );
-      setChecking(false);
-    }
-  } catch (error: any) {
-    if (mounted) {
-      setErrorMessage(
-        error.message || 'Unable to open reset link.'
-      );
-      setChecking(false);
-    }
-  }
-};
+          if (routeCode) {
+            routeUrl.searchParams.set('code', routeCode);
+          }
 
-    initialize();
+          if (routeAccessToken) {
+            routeUrl.searchParams.set(
+              'access_token',
+              routeAccessToken
+            );
+          }
+
+          if (routeRefreshToken) {
+            routeUrl.searchParams.set(
+              'refresh_token',
+              routeRefreshToken
+            );
+          }
+
+          if (routeType) {
+            routeUrl.searchParams.set('type', routeType);
+          }
+
+          if (routeTokenHash) {
+            routeUrl.searchParams.set(
+              'token_hash',
+              routeTokenHash
+            );
+          }
+
+          if (routeError) {
+            routeUrl.searchParams.set('error', routeError);
+          }
+
+          if (routeErrorDescription) {
+            routeUrl.searchParams.set(
+              'error_description',
+              routeErrorDescription
+            );
+          }
+
+          await setupRecovery(routeUrl.toString());
+          return;
+        }
+
+        let initialUrl: string | null = null;
+
+        if (Platform.OS === 'web') {
+          initialUrl = window.location.href;
+        } else {
+          initialUrl = await Linking.getInitialURL();
+        }
+
+        if (initialUrl) {
+          await setupRecovery(initialUrl);
+        } else if (mounted) {
+          setSessionReady(false);
+          setErrorMessage(
+            'Reset link not found. Please request a new link.'
+          );
+          setChecking(false);
+        }
+      } catch (error: any) {
+        if (mounted) {
+          setSessionReady(false);
+          setErrorMessage(
+            error?.message || 'Unable to open reset link.'
+          );
+          setChecking(false);
+        }
+      }
+    };
+
+    void initialize();
 
     return () => {
       mounted = false;
       subscription.remove();
     };
-  }, []);
+  }, [
+    routeCode,
+    routeAccessToken,
+    routeRefreshToken,
+    routeType,
+    routeTokenHash,
+    routeError,
+    routeErrorDescription,
+  ]);
+
+  const showMessage = (message: string) => {
+    if (Platform.OS === 'web') {
+      window.alert(message);
+    } else {
+      Alert.alert('Rise N Shine', message);
+    }
+  };
 
   const handleUpdatePassword = async () => {
     if (password.length < 6) {
-      alert('Password must be at least 6 characters.');
+      showMessage('Password must be at least 6 characters.');
       return;
     }
 
     if (password !== confirmPassword) {
-      alert('Passwords do not match.');
+      showMessage('Passwords do not match.');
       return;
     }
 
@@ -168,14 +286,17 @@ const initialize = async () => {
 
       if (error) throw error;
 
-      alert('Password updated successfully! Please login again.');
+      showMessage(
+        'Password updated successfully! Please login again.'
+      );
 
       await supabase.auth.signOut();
 
       router.replace('/login');
-
     } catch (error: any) {
-      alert(error.message || 'Password update failed.');
+      showMessage(
+        error?.message || 'Password update failed.'
+      );
     } finally {
       setLoading(false);
     }
@@ -204,7 +325,9 @@ const initialize = async () => {
 
           <TouchableOpacity
             style={styles.button}
-            onPress={() => router.replace('/forgot-password')}
+            onPress={() =>
+              router.replace('/forgot-password')
+            }
           >
             <Text style={styles.buttonText}>
               REQUEST NEW LINK
@@ -233,6 +356,7 @@ const initialize = async () => {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          autoCapitalize="none"
         />
 
         <Text style={styles.label}>Confirm Password</Text>
@@ -244,6 +368,7 @@ const initialize = async () => {
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           secureTextEntry
+          autoCapitalize="none"
         />
 
         <TouchableOpacity

@@ -1,4 +1,3 @@
-
 {
   "expo": {
     "name": "RiseNShineMobile",
@@ -8,11 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "risenshinemobile",
     "userInterfaceStyle": "automatic",
-
     "ios": {
       "icon": "./assets/expo.icon"
     },
-
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#FFF9EE",
@@ -21,12 +18,10 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.rupeshj020.RiseNShineMobile"
     },
-
     "web": {
       "output": "server",
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       "expo-router",
       [
@@ -38,14 +33,14 @@
           "resizeMode": "contain"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-
     "extra": {
       "router": {
         "asyncRoutes": {

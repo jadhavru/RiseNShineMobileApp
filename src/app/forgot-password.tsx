@@ -2,13 +2,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -24,7 +24,9 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registeredEmail)) {
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailPattern.test(registeredEmail)) {
       alert('Please enter a valid email address.');
       return;
     }
@@ -50,7 +52,6 @@ export default function ForgotPasswordScreen() {
       alert(
         'Password reset link sent! Please check your email.'
       );
-
     } catch (error: any) {
       alert(error.message || 'Unable to send reset link.');
     } finally {
