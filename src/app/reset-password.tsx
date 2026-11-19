@@ -219,7 +219,7 @@ export default function ResetPasswordScreen() {
         if (Platform.OS === 'web') {
           initialUrl = window.location.href;
         } else {
-          initialUrl = await Linking.getInitialURL();
+          initialUrl = (await Linking.getInitialURL()) ?? null;
         }
 
         if (initialUrl) {
