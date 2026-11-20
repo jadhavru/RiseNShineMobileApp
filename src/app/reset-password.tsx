@@ -1,10 +1,10 @@
 
-import { router, useLocalSearchParams } from 'expo-router';
+import * as ExpoLinking from 'expo-linking';
+import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -14,32 +14,21 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
-type RecoveryParams = {
-  code?: string | string[];
-  access_token?: string | string[];
-  refresh_token?: string | string[];
-  type?: string | string[];
-  token_hash?: string | string[];
-  error?: string | string[];
-  error_description?: string | string[];
-};
-
-const getValue = (
-  value?: string | string[]
-): string => {
-  return Array.isArray(value) ? value[0] || '' : value || '';
+type RecoveryData = {
+  code: string;
+  accessToken: string;
+  refreshToken: string;
+  type: string;
+  tokenHash: string;
+  error: string;
 };
 
 export default function ResetPasswordScreen() {
-  const params = useLocalSearchParams<RecoveryParams>();
+  const incomingUrl = ExpoLinking.useLinkingURL();
 
-  const routeCode = getValue(params.code);
-  const routeAccessToken = getValue(params.access_token);
-  const routeRefreshToken = getValue(params.refresh_token);
-  const routeType = getValue(params.type);
-  const routeTokenHash = getValue(params.token_hash);
-  const routeError = getValue(params.error);
-  const routeErrorDescription = getValue(params.error_description);
+  const recoveryTasks = useRef(
+    new Map<string, Promise<void>>()
+  );
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -48,86 +37,150 @@ export default function ResetPasswordScreen() {
   const [sessionReady, setSessionReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handledLinks = useRef(new Set<string>());
+  // Extract authentication information from the complete URL.
+  const parseRecoveryUrl = (url: string): RecoveryData => {
+    const parsedUrl = new URL(url);
+
+    const queryParams = parsedUrl.searchParams;
+
+    const hashParams = new URLSearchParams(
+      parsedUrl.hash.replace(/^#/, '')
+    );
+
+    const getParam = (key: string): string => {
+      return (
+        queryParams.get(key) ||
+        hashParams.get(key) ||
+        ''
+      );
+    };
+
+    return {
+      code: getParam('code'),
+      accessToken: getParam('access_token'),
+      refreshToken: getParam('refresh_token'),
+      type: getParam('type'),
+      tokenHash: getParam('token_hash'),
+      error:
+        getParam('error_description') ||
+        getParam('error') ||
+        '',
+    };
+  };
+
+  // Verify recovery link and create Supabase session.
+  const verifyRecoveryLink = async (
+    url: string
+  ): Promise<void> => {
+    const recovery = parseRecoveryUrl(url);
+
+    if (recovery.error) {
+      throw new Error(recovery.error);
+    }
+
+    // PKCE recovery flow.
+    if (recovery.code) {
+      const { error } =
+        await supabase.auth.exchangeCodeForSession(
+          recovery.code
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      return;
+    }
+
+    // Token hash recovery flow.
+    if (recovery.tokenHash) {
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: recovery.tokenHash,
+        type: 'recovery',
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return;
+    }
+
+    // Implicit token recovery flow.
+    if (
+      recovery.accessToken &&
+      recovery.refreshToken &&
+      recovery.type === 'recovery'
+    ) {
+      const { error } = await supabase.auth.setSession({
+        access_token: recovery.accessToken,
+        refresh_token: recovery.refreshToken,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return;
+    }
+
+    throw new Error(
+      'Reset link not found. Please request a new link.'
+    );
+  };
 
   useEffect(() => {
     let mounted = true;
 
-    const setupRecovery = async (url: string) => {
-      let recoveryKey = '';
-
+    const initializeRecovery = async () => {
       try {
-        const parsedUrl = new URL(url);
+        setChecking(true);
+        setSessionReady(false);
+        setErrorMessage('');
 
-        const query = parsedUrl.searchParams;
-        const hash = new URLSearchParams(
-          parsedUrl.hash.replace(/^#/, '')
-        );
+        let resetUrl: string | null = null;
 
-        const getParam = (key: string) =>
-          query.get(key) || hash.get(key) || '';
-
-        const code = getParam('code');
-        const accessToken = getParam('access_token');
-        const refreshToken = getParam('refresh_token');
-        const type = getParam('type');
-        const tokenHash = getParam('token_hash');
-
-        const authError =
-          getParam('error_description') ||
-          getParam('error');
-
-        recoveryKey = code
-          ? `code:${code}`
-          : accessToken
-          ? `access:${accessToken}`
-          : tokenHash
-          ? `hash:${tokenHash}`
-          : `url:${url}`;
-
-        if (handledLinks.current.has(recoveryKey)) {
-          return;
-        }
-
-        handledLinks.current.add(recoveryKey);
-
-        if (mounted) {
-          setChecking(true);
-          setErrorMessage('');
-        }
-
-        if (authError) {
-          throw new Error(authError);
-        }
-
-        if (code) {
-          const { error } =
-            await supabase.auth.exchangeCodeForSession(code);
-
-          if (error) throw error;
-        } else if (tokenHash) {
-          const { error } = await supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: 'recovery',
-          });
-
-          if (error) throw error;
-        } else if (
-          accessToken &&
-          refreshToken &&
-          type === 'recovery'
-        ) {
-          const { error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-
-          if (error) throw error;
+        // On web, use the complete browser URL.
+        if (Platform.OS === 'web') {
+          resetUrl = window.location.href;
         } else {
+          // On Android and iOS, use the incoming deep link.
+          resetUrl =
+            incomingUrl ??
+            (await ExpoLinking.getInitialURL()) ??
+            null;
+        }
+
+        if (!resetUrl) {
           throw new Error(
-            'Invalid or expired reset link. Please request a new one.'
+            'Reset link not found. Please request a new link.'
           );
         }
+
+        // Reuse an existing verification task if React runs
+        // the effect more than once for the same URL.
+        let recoveryTask =
+          recoveryTasks.current.get(resetUrl);
+
+        if (!recoveryTask) {
+          recoveryTask = verifyRecoveryLink(resetUrl);
+
+          recoveryTasks.current.set(
+            resetUrl,
+            recoveryTask
+          );
+
+          recoveryTask.catch(() => {
+            if (
+              recoveryTasks.current.get(resetUrl) ===
+              recoveryTask
+            ) {
+              recoveryTasks.current.delete(resetUrl);
+            }
+          });
+        }
+
+        await recoveryTask;
 
         if (mounted) {
           setSessionReady(true);
@@ -136,8 +189,10 @@ export default function ResetPasswordScreen() {
       } catch (error: any) {
         if (mounted) {
           setSessionReady(false);
+
           setErrorMessage(
-            error?.message || 'Unable to verify reset link.'
+            error?.message ||
+              'Unable to verify reset link.'
           );
         }
       } finally {
@@ -147,117 +202,14 @@ export default function ResetPasswordScreen() {
       }
     };
 
-    const subscription = Linking.addEventListener(
-      'url',
-      ({ url }) => {
-        void setupRecovery(url);
-      }
-    );
-
-    const initialize = async () => {
-      try {
-        const hasRouteParams = Boolean(
-          routeCode ||
-          routeAccessToken ||
-          routeRefreshToken ||
-          routeTokenHash ||
-          routeError ||
-          routeErrorDescription
-        );
-
-        if (hasRouteParams) {
-          const routeUrl = new URL(
-            'risenshinemobile://reset-password'
-          );
-
-          if (routeCode) {
-            routeUrl.searchParams.set('code', routeCode);
-          }
-
-          if (routeAccessToken) {
-            routeUrl.searchParams.set(
-              'access_token',
-              routeAccessToken
-            );
-          }
-
-          if (routeRefreshToken) {
-            routeUrl.searchParams.set(
-              'refresh_token',
-              routeRefreshToken
-            );
-          }
-
-          if (routeType) {
-            routeUrl.searchParams.set('type', routeType);
-          }
-
-          if (routeTokenHash) {
-            routeUrl.searchParams.set(
-              'token_hash',
-              routeTokenHash
-            );
-          }
-
-          if (routeError) {
-            routeUrl.searchParams.set('error', routeError);
-          }
-
-          if (routeErrorDescription) {
-            routeUrl.searchParams.set(
-              'error_description',
-              routeErrorDescription
-            );
-          }
-
-          await setupRecovery(routeUrl.toString());
-          return;
-        }
-
-        let initialUrl: string | null = null;
-
-        if (Platform.OS === 'web') {
-          initialUrl = window.location.href;
-        } else {
-          initialUrl = (await Linking.getInitialURL()) ?? null;
-        }
-
-        if (initialUrl) {
-          await setupRecovery(initialUrl);
-        } else if (mounted) {
-          setSessionReady(false);
-          setErrorMessage(
-            'Reset link not found. Please request a new link.'
-          );
-          setChecking(false);
-        }
-      } catch (error: any) {
-        if (mounted) {
-          setSessionReady(false);
-          setErrorMessage(
-            error?.message || 'Unable to open reset link.'
-          );
-          setChecking(false);
-        }
-      }
-    };
-
-    void initialize();
+    void initializeRecovery();
 
     return () => {
       mounted = false;
-      subscription.remove();
     };
-  }, [
-    routeCode,
-    routeAccessToken,
-    routeRefreshToken,
-    routeType,
-    routeTokenHash,
-    routeError,
-    routeErrorDescription,
-  ]);
+  }, [incomingUrl]);
 
+  // Show messages on web and mobile.
   const showMessage = (message: string) => {
     if (Platform.OS === 'web') {
       window.alert(message);
@@ -266,9 +218,12 @@ export default function ResetPasswordScreen() {
     }
   };
 
+  // Update user's password.
   const handleUpdatePassword = async () => {
     if (password.length < 6) {
-      showMessage('Password must be at least 6 characters.');
+      showMessage(
+        'Password must be at least 6 characters.'
+      );
       return;
     }
 
@@ -284,7 +239,9 @@ export default function ResetPasswordScreen() {
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       showMessage(
         'Password updated successfully! Please login again.'
@@ -302,10 +259,15 @@ export default function ResetPasswordScreen() {
     }
   };
 
+  // Loading screen.
   if (checking) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color="#246BCE" />
+        <ActivityIndicator
+          size="large"
+          color="#246BCE"
+        />
+
         <Text style={styles.subtitle}>
           Verifying reset link...
         </Text>
@@ -313,11 +275,14 @@ export default function ResetPasswordScreen() {
     );
   }
 
+  // Invalid or expired link screen.
   if (!sessionReady) {
     return (
       <View style={styles.container}>
         <View style={styles.content}>
-          <Text style={styles.title}>Reset Link Error</Text>
+          <Text style={styles.title}>
+            Reset Link Error
+          </Text>
 
           <Text style={styles.subtitle}>
             {errorMessage}
@@ -338,16 +303,21 @@ export default function ResetPasswordScreen() {
     );
   }
 
+  // New password screen.
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Reset Password</Text>
+        <Text style={styles.title}>
+          Reset Password
+        </Text>
 
         <Text style={styles.subtitle}>
           Enter your new password below.
         </Text>
 
-        <Text style={styles.label}>New Password</Text>
+        <Text style={styles.label}>
+          New Password
+        </Text>
 
         <TextInput
           style={styles.input}
@@ -357,9 +327,12 @@ export default function ResetPasswordScreen() {
           onChangeText={setPassword}
           secureTextEntry
           autoCapitalize="none"
+          autoCorrect={false}
         />
 
-        <Text style={styles.label}>Confirm Password</Text>
+        <Text style={styles.label}>
+          Confirm Password
+        </Text>
 
         <TextInput
           style={styles.input}
@@ -369,6 +342,7 @@ export default function ResetPasswordScreen() {
           onChangeText={setConfirmPassword}
           secureTextEntry
           autoCapitalize="none"
+          autoCorrect={false}
         />
 
         <TouchableOpacity
@@ -380,7 +354,9 @@ export default function ResetPasswordScreen() {
           disabled={loading}
         >
           <Text style={styles.buttonText}>
-            {loading ? 'UPDATING...' : 'UPDATE PASSWORD'}
+            {loading
+              ? 'UPDATING...'
+              : 'UPDATE PASSWORD'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -388,21 +364,25 @@ export default function ResetPasswordScreen() {
   );
 }
 
+// Styles.
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFF9EE',
     justifyContent: 'center',
   },
+
   content: {
     padding: 25,
   },
+
   title: {
     fontSize: 29,
     fontWeight: '800',
     color: '#174A78',
     textAlign: 'center',
   },
+
   subtitle: {
     fontSize: 14,
     color: '#718096',
@@ -411,6 +391,7 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     lineHeight: 22,
   },
+
   label: {
     fontSize: 14,
     fontWeight: '700',
@@ -418,6 +399,7 @@ const styles = StyleSheet.create({
     marginBottom: 9,
     marginTop: 16,
   },
+
   input: {
     height: 56,
     backgroundColor: '#FFFFFF',
@@ -428,6 +410,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#173B68',
   },
+
   button: {
     height: 57,
     backgroundColor: '#246BCE',
@@ -436,6 +419,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 27,
   },
+
   buttonText: {
     color: '#FFFFFF',
     fontSize: 15,
