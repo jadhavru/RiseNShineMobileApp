@@ -10,17 +10,26 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
-type Game = 'home' | 'tictactoe' | 'memory' | 'snake';
+type Game = 'home' | 'tictactoe' | 'memory' | 'whackAMole';
 type Player = 'X' | 'O';
-type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
-type LeaderboardGame = 'tic_tac_toe' | 'memory_match' | 'snake';
+type LeaderboardGame = 'tic_tac_toe' | 'memory_match' | 'whack_a_mole';
 
 const EMOJIS = ['🍎', '🍌', '🍇', '🍉', '🍒', '🍓', '🍍', '🥝'];
 
 const GAME_LABELS: Record<LeaderboardGame, string> = {
   tic_tac_toe: '⭕ Tic Tac Toe',
-  memory_match: '🧠 Memory',
-  snake: '🐍 Snake',
+  memory_match: '🧠 Memory Match',
+  whack_a_mole: '🔨 Whack-a-Mole',
+};
+
+const getNextMoleIndex = (excludeIndex: number = -1): number => {
+  let nextIndex = Math.floor(Math.random() * 9);
+
+  while (nextIndex === excludeIndex) {
+    nextIndex = Math.floor(Math.random() * 9);
+  }
+
+  return nextIndex;
 };
 
 const createMemoryCards = () => {
@@ -50,25 +59,6 @@ const getWinner = (board: (Player | null)[]) => {
   return null;
 };
 
-const createSnake = () => [
-  { x: 5, y: 5 },
-  { x: 4, y: 5 },
-  { x: 3, y: 5 },
-];
-
-const createFood = (snake: { x: number; y: number }[]) => {
-  let food = { x: 0, y: 0 };
-
-  do {
-    food = {
-      x: Math.floor(Math.random() * 10),
-      y: Math.floor(Math.random() * 10),
-    };
-  } while (snake.some((part) => part.x === food.x && part.y === food.y));
-
-  return food;
-};
-
 export default function GameZoneScreen() {
   const [selectedGame, setSelectedGame] = useState<Game>('home');
 
@@ -76,12 +66,12 @@ export default function GameZoneScreen() {
   const [bestScores, setBestScores] = useState<Record<LeaderboardGame, number>>({
     tic_tac_toe: 0,
     memory_match: 0,
-    snake: 0,
+    whack_a_mole: 0,
   });
 
   // LEADERBOARD
   const [leaderboardGame, setLeaderboardGame] =
-    useState<LeaderboardGame>('snake');
+    useState<LeaderboardGame>('whack_a_mole');
 
   const [leaderboard, setLeaderboard] = useState<
     { user_id: string; name: string; score: number }[]
@@ -90,16 +80,17 @@ export default function GameZoneScreen() {
   const [myRanks, setMyRanks] = useState<Record<LeaderboardGame, number | null>>({
     tic_tac_toe: null,
     memory_match: null,
-    snake: null,
+    whack_a_mole: null,
   });
 
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [scoreSaving, setScoreSaving] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Prevent duplicate score saving
   const ticSaved = useRef(false);
   const memorySaved = useRef(false);
-  const snakeSaved = useRef(false);
+  const whackSaved = useRef(false);
 
   // TIC TAC TOE
   const [ticBoard, setTicBoard] = useState<(Player | null)[]>(
@@ -115,19 +106,13 @@ export default function GameZoneScreen() {
   const [memoryMoves, setMemoryMoves] = useState(0);
   const [memoryLocked, setMemoryLocked] = useState(false);
 
-  // SNAKE GAME
-  const [snake, setSnake] = useState(createSnake);
-  const [food, setFood] = useState(() => createFood(createSnake()));
-  const [snakeDirection, setSnakeDirection] = useState<Direction>('RIGHT');
-  const [snakeScore, setSnakeScore] = useState(0);
-  const [snakeRunning, setSnakeRunning] = useState(false);
-  const [snakeOver, setSnakeOver] = useState(false);
-
-  // Keep the latest Snake values available to the game timer.
-  const snakeRef = useRef(snake);
-  const foodRef = useRef(food);
-  const directionRef = useRef<Direction>('RIGHT');
-  const directionChangedRef = useRef(false);
+  // WHACK-A-MOLE GAME
+  const [moleIndex, setMoleIndex] = useState(() => getNextMoleIndex());
+  const [whackScore, setWhackScore] = useState(0);
+  const [whackTimeLeft, setWhackTimeLeft] = useState(30);
+  const [whackRunning, setWhackRunning] = useState(false);
+  const [whackOver, setWhackOver] = useState(false);
+  const moleIndexRef = useRef(moleIndex);
 
   // TIC TAC TOE RESULT
   const ticWinner = getWinner(ticBoard);
@@ -148,7 +133,7 @@ export default function GameZoneScreen() {
     const games: LeaderboardGame[] = [
       'tic_tac_toe',
       'memory_match',
-      'snake',
+      'whack_a_mole',
     ];
 
     const results = await Promise.all(
@@ -187,6 +172,8 @@ export default function GameZoneScreen() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+
+      setCurrentUserId(user?.id ?? null);
 
       const { data: scores, error } = await supabase
         .from('game_scores')
@@ -285,15 +272,22 @@ export default function GameZoneScreen() {
         return;
       }
 
-      const { error } = await supabase.from('game_scores').insert({
-        user_id: user.id,
-        game_name: gameName,
-        score,
-        details,
-      });
+      const { error } = await supabase.rpc(
+  'save_game_best_score',
+  {
+    p_game_name: gameName,
+    p_score: score,
+    p_details: details,
+  }
+);
+
+if (error) {
+  console.log('Score save error:', error.message);
+  return;
+}
 
       if (error) {
-        console.log('Score save error:', error.message);
+         
         return;
       }
 
@@ -325,7 +319,7 @@ export default function GameZoneScreen() {
   // Initial loading
   useEffect(() => {
     loadMyBestScores();
-    loadLeaderboard('snake');
+    loadLeaderboard('whack_a_mole');
   }, []);
 
   // Reload leaderboard when selected game changes.
@@ -470,78 +464,68 @@ export default function GameZoneScreen() {
   }, [selectedGame, matchedCards.length, memoryMoves]);
 
   // -----------------------------------------
-  // SNAKE GAME TIMER
+  // WHACK-A-MOLE GAME TIMER
+  // The round lasts 30 seconds. The mole moves periodically,
+  // but missing a tap never ends the game.
   // -----------------------------------------
 
   useEffect(() => {
-    if (selectedGame !== 'snake' || !snakeRunning) return;
+    if (selectedGame !== 'whackAMole' || !whackRunning) return;
 
     const timer = setInterval(() => {
-      const currentSnake = snakeRef.current;
-      const currentFood = foodRef.current;
-      const currentDirection = directionRef.current;
-      const head = currentSnake[0];
-
-      // Allow one direction change for each movement step.
-      directionChangedRef.current = false;
-
-      const directions: Record<Direction, { x: number; y: number }> = {
-        UP: { x: head.x, y: head.y - 1 },
-        DOWN: { x: head.x, y: head.y + 1 },
-        LEFT: { x: head.x - 1, y: head.y },
-        RIGHT: { x: head.x + 1, y: head.y },
-      };
-
-      const nextHead = directions[currentDirection];
-      const eating = nextHead.x === currentFood.x && nextHead.y === currentFood.y;
-      const body = eating ? currentSnake : currentSnake.slice(0, -1);
-
-      const hitWall =
-        nextHead.x < 0 ||
-        nextHead.x >= 10 ||
-        nextHead.y < 0 ||
-        nextHead.y >= 10;
-
-      const hitBody = body.some(
-        (part) => part.x === nextHead.x && part.y === nextHead.y
-      );
-
-      if (hitWall || hitBody) {
-        setSnakeRunning(false);
-        setSnakeOver(true);
-        return;
-      }
-
-      const nextSnake = [nextHead, ...currentSnake];
-      if (!eating) {
-        nextSnake.pop();
-      } else {
-        setSnakeScore((score) => score + 10);
-        const nextFood = createFood(nextSnake);
-        foodRef.current = nextFood;
-        setFood(nextFood);
-      }
-
-      snakeRef.current = nextSnake;
-      setSnake(nextSnake);
-    }, 220);
+      setWhackTimeLeft((previous) => Math.max(0, previous - 1));
+    }, 1000);
 
     return () => clearInterval(timer);
-  }, [selectedGame, snakeRunning]);
+  }, [selectedGame, whackRunning]);
+
+  useEffect(() => {
+    if (selectedGame !== 'whackAMole' || !whackRunning) return;
+
+    const timer = setInterval(() => {
+      setMoleIndex((previous) => {
+        const next = getNextMoleIndex(previous);
+        moleIndexRef.current = next;
+        return next;
+      });
+    }, 1100);
+
+    return () => clearInterval(timer);
+  }, [selectedGame, whackRunning]);
+
+  useEffect(() => {
+    if (
+      selectedGame !== 'whackAMole' ||
+      !whackRunning ||
+      whackTimeLeft > 0
+    ) {
+      return;
+    }
+
+    setWhackRunning(false);
+    setWhackOver(true);
+  }, [selectedGame, whackRunning, whackTimeLeft]);
 
   // -----------------------------------------
-  // SAVE SNAKE RESULT
+  // SAVE WHACK-A-MOLE RESULT
   // -----------------------------------------
 
   useEffect(() => {
-    if (selectedGame !== 'snake' || !snakeOver || snakeSaved.current) return;
+    if (
+      selectedGame !== 'whackAMole' ||
+      !whackOver ||
+      whackSaved.current
+    ) {
+      return;
+    }
 
-    snakeSaved.current = true;
+    whackSaved.current = true;
 
-    saveGameScore('snake', snakeScore, {
-      snake_size: snake.length,
+    saveGameScore('whack_a_mole', whackScore, {
+      duration_seconds: 30,
+      points_per_hit: 10,
     });
-  }, [selectedGame, snakeOver]);
+  }, [selectedGame, whackOver, whackScore]);
 
   // -----------------------------------------
   // COMMON
@@ -621,82 +605,35 @@ export default function GameZoneScreen() {
   };
 
   // -----------------------------------------
-  // SNAKE GAME
+  // WHACK-A-MOLE GAME
   // -----------------------------------------
 
-  const resetSnake = () => {
-    snakeSaved.current = false;
-
-    const newSnake = createSnake();
-    const newFood = createFood(newSnake);
-
-    snakeRef.current = newSnake;
-    foodRef.current = newFood;
-    directionRef.current = 'RIGHT';
-    directionChangedRef.current = false;
-
-    setSnake(newSnake);
-    setFood(newFood);
-    setSnakeDirection('RIGHT');
-    setSnakeScore(0);
-    setSnakeOver(false);
-    setSnakeRunning(false);
+  const resetWhackAMole = () => {
+    whackSaved.current = false;
+    const nextMole = getNextMoleIndex();
+    moleIndexRef.current = nextMole;
+    setMoleIndex(nextMole);
+    setWhackScore(0);
+    setWhackTimeLeft(30);
+    setWhackOver(false);
+    setWhackRunning(false);
   };
 
-  const startSnake = () => {
-    resetSnake();
-    setSnakeRunning(true);
+  const startWhackAMole = () => {
+    resetWhackAMole();
+    setWhackRunning(true);
   };
 
-  const changeDirection = (direction: Direction) => {
-    const opposite: Record<Direction, Direction> = {
-      UP: 'DOWN',
-      DOWN: 'UP',
-      LEFT: 'RIGHT',
-      RIGHT: 'LEFT',
-    };
+  const hitMole = (index: number) => {
+    if (!whackRunning || whackOver || index !== moleIndexRef.current) {
+      return;
+    }
 
-    // Ignore reverse turns and multiple turns within the same movement step.
-    if (opposite[direction] === directionRef.current) return;
-    if (directionChangedRef.current) return;
+    setWhackScore((previous) => previous + 10);
 
-    directionRef.current = direction;
-    directionChangedRef.current = true;
-    setSnakeDirection(direction);
-  };
-
-  const renderSnakeBoard = () => {
-    return Array.from({ length: 100 }, (_, index) => {
-      const x = index % 10;
-      const y = Math.floor(index / 10);
-
-      const isHead = snake[0]?.x === x && snake[0]?.y === y;
-
-      const isBody = snake.some(
-        (part, partIndex) =>
-          partIndex > 0 && part.x === x && part.y === y
-      );
-
-      const isFood = food.x === x && food.y === y;
-
-      return (
-        <View
-          key={index}
-          style={[
-            styles.snakeCell,
-            isBody && styles.snakeBody,
-            isHead && styles.snakeHead,
-            isFood && styles.foodCell,
-          ]}
-        >
-          {isHead ? (
-            <Text style={styles.snakeHeadEmoji}>🐍</Text>
-          ) : isFood ? (
-            <Text style={styles.foodEmoji}>🍎</Text>
-          ) : null}
-        </View>
-      );
-    });
+    const nextMole = getNextMoleIndex(moleIndexRef.current);
+    moleIndexRef.current = nextMole;
+    setMoleIndex(nextMole);
   };
 
   // -----------------------------------------
@@ -713,7 +650,7 @@ export default function GameZoneScreen() {
 
       <View style={styles.leaderboardTabs}>
         {(
-          ['snake', 'memory_match', 'tic_tac_toe'] as LeaderboardGame[]
+          ['whack_a_mole', 'memory_match', 'tic_tac_toe'] as LeaderboardGame[]
         ).map((game) => (
           <TouchableOpacity
             key={game}
@@ -761,8 +698,7 @@ export default function GameZoneScreen() {
         </Text>
       ) : (
         leaderboard.map((item, index) => {
-          const isMe = item.user_id ===
-            leaderboard.find((player) => player.user_id === item.user_id)?.user_id;
+          const isMe = item.user_id === currentUserId;
 
           return (
             <View
@@ -883,7 +819,7 @@ export default function GameZoneScreen() {
               <Text style={styles.cardEmoji}>🧠</Text>
 
               <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>Memory Match</Text>
+                <Text style={[styles.cardTitle, styles.memoryTitle]}>Memory Match</Text>
 
                 <Text style={styles.cardDescription}>
                   सारखी चित्रे शोधा आणि तुमची Memory तपासा!
@@ -897,25 +833,25 @@ export default function GameZoneScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.gameCard, styles.snakeCard]}
+              style={[styles.gameCard, styles.whackMoleCard]}
               activeOpacity={0.85}
               onPress={() => {
-                resetSnake();
-                setSelectedGame('snake');
+                resetWhackAMole();
+                setSelectedGame('whackAMole');
               }}
             >
-              <Text style={styles.cardEmoji}>🐍</Text>
+              <Text style={styles.cardEmoji}>🔨</Text>
 
               <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>Snake Game</Text>
+                <Text style={styles.cardTitle}>Whack-a-Mole</Text>
 
                 <Text style={styles.cardDescription}>
-                  फळे खा, साप मोठा करा आणि जास्तीत जास्त स्कोअर मिळवा!
+                  30 सेकंदांत बाहेर येणाऱ्या मोलवर टॅप करा आणि जास्तीत जास्त Points मिळवा!
                 </Text>
 
                 <Text style={styles.cardPlay}>PLAY NOW →</Text>
                 <Text style={styles.cardBest}>
-                  🏆 Best: {bestScores.snake}
+                  🏆 Best: {bestScores.whack_a_mole}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -1059,7 +995,7 @@ export default function GameZoneScreen() {
         {/* MEMORY MATCH */}
         {selectedGame === 'memory' && (
           <View style={styles.playCard}>
-            <Text style={styles.gameHeading}>🧠 Memory Match</Text>
+            <Text style={[styles.gameHeading, styles.memoryTitle]}>🧠 Memory Match</Text>
 
             <Text style={styles.bestScoreText}>
               🏆 My Best: {bestScores.memory_match} Points
@@ -1139,107 +1075,81 @@ export default function GameZoneScreen() {
           </View>
         )}
 
-        {/* SNAKE GAME */}
-        {selectedGame === 'snake' && (
+        {/* WHACK-A-MOLE */}
+        {selectedGame === 'whackAMole' && (
           <View style={styles.playCard}>
-            <Text style={styles.gameHeading}>🐍 Snake Game</Text>
+            <Text style={styles.gameHeading}>🔨 Whack-a-Mole</Text>
 
             <Text style={styles.bestScoreText}>
-              🏆 My Best: {bestScores.snake} Points
+              🏆 My Best: {bestScores.whack_a_mole} Points
             </Text>
 
             <View style={styles.gameStatsRow}>
               <View style={styles.statBox}>
                 <Text style={styles.statLabel}>SCORE</Text>
-                <Text style={styles.statValue}>{snakeScore}</Text>
+                <Text style={styles.statValue}>{whackScore}</Text>
               </View>
 
               <View style={styles.statBox}>
-                <Text style={styles.statLabel}>SNAKE SIZE</Text>
-                <Text style={styles.statValue}>{snake.length}</Text>
+                <Text style={styles.statLabel}>TIME LEFT</Text>
+                <Text style={styles.statValue}>{whackTimeLeft}s</Text>
               </View>
             </View>
 
             <Text style={styles.instructions}>
-              बटणे वापरून सापाला हलवा. 🍎 खा आणि भिंतीला किंवा स्वतःला धडकू नका!
+              मोल दिसताच त्यावर टॅप करा! प्रत्येक योग्य टॅपला 10 Points. तुमच्याकडे पूर्ण 30 सेकंद आहेत. चुकीच्या जागी टॅप केल्याने गेम संपणार नाही.
             </Text>
 
-            <View style={styles.snakeBoard}>
-              {renderSnakeBoard()}
+            <View style={styles.moleGrid}>
+              {Array.from({ length: 9 }, (_, index) => {
+                const isMole = whackRunning && index === moleIndex;
+
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.moleHole,
+                      isMole && styles.moleHoleActive,
+                    ]}
+                    activeOpacity={0.8}
+                    onPress={() => hitMole(index)}
+                    disabled={!whackRunning || whackOver}
+                  >
+                    <Text style={styles.moleEmoji}>
+                      {isMole ? '🐹' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            {snakeOver && (
+            {whackOver && (
               <View style={styles.resultBox}>
-                <Text style={styles.resultEmoji}>🏁</Text>
-                <Text style={styles.resultTitle}>Game Over!</Text>
+                <Text style={styles.resultEmoji}>🏆</Text>
+                <Text style={styles.resultTitle}>Time's Up!</Text>
                 <Text style={styles.resultText}>
-                  तुमचा अंतिम स्कोअर: {snakeScore}
+                  तुम्ही {whackScore / 10} मोल पकडले!
+                </Text>
+                <Text style={styles.resultPoints}>
+                  Final Score: {whackScore} Points
                 </Text>
               </View>
             )}
 
-            {!snakeRunning && !snakeOver && (
+            {!whackRunning && !whackOver && (
               <Text style={styles.readyText}>
                 तयार आहात? Start Game दाबा!
               </Text>
             )}
 
-            <View style={styles.directionControls}>
-              <TouchableOpacity
-                style={[
-                  styles.directionButton,
-                  !snakeRunning && styles.disabledDirection,
-                ]}
-                onPress={() => changeDirection('UP')}
-                disabled={!snakeRunning}
-              >
-                <Text style={styles.directionText}>↑</Text>
-              </TouchableOpacity>
-
-              <View style={styles.directionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.directionButton,
-                    !snakeRunning && styles.disabledDirection,
-                  ]}
-                  onPress={() => changeDirection('LEFT')}
-                  disabled={!snakeRunning}
-                >
-                  <Text style={styles.directionText}>←</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.directionButton,
-                    !snakeRunning && styles.disabledDirection,
-                  ]}
-                  onPress={() => changeDirection('DOWN')}
-                  disabled={!snakeRunning}
-                >
-                  <Text style={styles.directionText}>↓</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.directionButton,
-                    !snakeRunning && styles.disabledDirection,
-                  ]}
-                  onPress={() => changeDirection('RIGHT')}
-                  disabled={!snakeRunning}
-                >
-                  <Text style={styles.directionText}>→</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
             <TouchableOpacity
               style={styles.primaryButton}
-              onPress={startSnake}
+              onPress={startWhackAMole}
             >
               <Text style={styles.primaryButtonText}>
-                {snakeOver
+                {whackOver
                   ? 'Play Again ↻'
-                  : snakeRunning
+                  : whackRunning
                   ? 'Restart Game ↻'
                   : 'Start Game ▶'}
               </Text>
@@ -1341,9 +1251,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF1E6',
     borderColor: '#F5DDC9',
   },
-  snakeCard: {
-    backgroundColor: '#EAF5EC',
-    borderColor: '#D7EBDD',
+  whackMoleCard: {
+    backgroundColor: '#FFF4E5',
+    borderColor: '#F5DFC2',
   },
   cardEmoji: {
     fontSize: 43,
@@ -1358,6 +1268,9 @@ const styles = StyleSheet.create({
     color: '#123B63',
     fontSize: 17,
     fontWeight: '900',
+  },
+  memoryTitle: {
+    color: '#7B3FA1',
   },
   cardDescription: {
     color: '#64748B',
@@ -1539,42 +1452,37 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#FFFFFF',
   },
-  snakeBoard: {
+  moleGrid: {
     width: '100%',
-    aspectRatio: 1,
-    backgroundColor: '#DDEBDD',
-    borderWidth: 3,
-    borderColor: '#123B63',
-    borderRadius: 10,
+    maxWidth: 340,
+    alignSelf: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    overflow: 'hidden',
-  },
-  snakeCell: {
-    width: '10%',
-    height: '10%',
+    justifyContent: 'center',
+    gap: 10,
+    padding: 10,
     backgroundColor: '#EAF5EC',
-    borderWidth: 0.4,
-    borderColor: '#D0E3D0',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D7EBDD',
+  },
+  moleHole: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 48,
+    backgroundColor: '#9B7653',
+    borderWidth: 5,
+    borderColor: '#755339',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  snakeBody: {
-    backgroundColor: '#16834A',
-    borderRadius: 4,
+  moleHoleActive: {
+    backgroundColor: '#F5D6A5',
+    borderColor: '#E87532',
   },
-  snakeHead: {
-    backgroundColor: '#0C6538',
-    borderRadius: 5,
-  },
-  snakeHeadEmoji: {
-    fontSize: 17,
-  },
-  foodCell: {
-    backgroundColor: '#FFE4C9',
-  },
-  foodEmoji: {
-    fontSize: 15,
+  moleEmoji: {
+    fontSize: 42,
+    textAlign: 'center',
   },
   readyText: {
     color: '#64748B',
@@ -1582,31 +1490,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 15,
     fontWeight: '700',
-  },
-  directionControls: {
-    alignItems: 'center',
-    marginTop: 17,
-    gap: 7,
-  },
-  directionRow: {
-    flexDirection: 'row',
-    gap: 9,
-  },
-  directionButton: {
-    width: 58,
-    height: 48,
-    borderRadius: 11,
-    backgroundColor: '#123B63',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  disabledDirection: {
-    opacity: 0.4,
-  },
-  directionText: {
-    color: '#FFFFFF',
-    fontSize: 25,
-    fontWeight: '900',
   },
   resultBox: {
     backgroundColor: '#F5F8FC',

@@ -36,7 +36,8 @@ export default function ResetPasswordScreen() {
   const [checking, setChecking] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   // Extract authentication information from the complete URL.
   const parseRecoveryUrl = (url: string): RecoveryData => {
     const parsedUrl = new URL(url);
@@ -304,64 +305,90 @@ export default function ResetPasswordScreen() {
   }
 
   // New password screen.
-  return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>
-          Reset Password
-        </Text>
 
-        <Text style={styles.subtitle}>
-          Enter your new password below.
-        </Text>
+return (
+  <View style={styles.container}>
+    <View style={styles.content}>
+      <Text style={styles.title}>
+        Reset Password
+      </Text>
 
-        <Text style={styles.label}>
-          New Password
-        </Text>
+      <Text style={styles.subtitle}>
+        Enter your new password below.
+      </Text>
 
+      <Text style={styles.label}>
+        New Password
+      </Text>
+
+      <View style={styles.passwordField}>
         <TextInput
-          style={styles.input}
+          style={styles.passwordInput}
           placeholder="Enter new password"
           placeholderTextColor="#9AA6B2"
           value={password}
           onChangeText={setPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        <Text style={styles.label}>
-          Confirm Password
-        </Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="Confirm new password"
-          placeholderTextColor="#9AA6B2"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          secureTextEntry
+          secureTextEntry={!showPassword}
           autoCapitalize="none"
           autoCorrect={false}
         />
 
         <TouchableOpacity
-          style={[
-            styles.button,
-            loading && { opacity: 0.6 },
-          ]}
-          onPress={handleUpdatePassword}
-          disabled={loading}
+          onPress={() => setShowPassword(!showPassword)}
+          style={styles.showPasswordButton}
         >
-          <Text style={styles.buttonText}>
-            {loading
-              ? 'UPDATING...'
-              : 'UPDATE PASSWORD'}
+          <Text style={styles.showPasswordText}>
+            {showPassword ? '🙈 Hide' : '👁 Show'}
           </Text>
         </TouchableOpacity>
       </View>
+
+      <Text style={styles.label}>
+        Confirm Password
+      </Text>
+
+      <View style={styles.passwordField}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="Confirm new password"
+          placeholderTextColor="#9AA6B2"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry={!showConfirmPassword}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+
+        <TouchableOpacity
+          onPress={() =>
+            setShowConfirmPassword(!showConfirmPassword)
+          }
+          style={styles.showPasswordButton}
+        >
+          <Text style={styles.showPasswordText}>
+            {showConfirmPassword ? '🙈 Hide' : '👁 Show'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={[
+          styles.button,
+          loading && { opacity: 0.6 },
+        ]}
+        onPress={handleUpdatePassword}
+        disabled={loading}
+      >
+        <Text style={styles.buttonText}>
+          {loading
+            ? 'UPDATING...'
+            : 'UPDATE PASSWORD'}
+        </Text>
+      </TouchableOpacity>
     </View>
-  );
+  </View>
+);
+
 }
 
 // Styles.
@@ -426,4 +453,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1,
   },
+  passwordField: {
+  height: 56,
+  backgroundColor: '#FFFFFF',
+  borderWidth: 1,
+  borderColor: '#E4EAF1',
+  borderRadius: 16,
+  paddingHorizontal: 14,
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+
+passwordInput: {
+  flex: 1,
+  height: '100%',
+  fontSize: 15,
+  color: '#173B68',
+},
+
+showPasswordButton: {
+  paddingLeft: 10,
+  paddingVertical: 10,
+},
+
+showPasswordText: {
+  color: '#246BCE',
+  fontSize: 13,
+  fontWeight: '700',
+},
 });

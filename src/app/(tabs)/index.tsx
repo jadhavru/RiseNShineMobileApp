@@ -178,9 +178,9 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.gameItem}>
-              <Text style={styles.gameItemIcon}>🐍</Text>
+              <Text style={styles.gameItemIcon}>🔨</Text>
               <Text style={styles.gameFooterText}>
-                Snake Game
+                Whack-a-Mole
               </Text>
             </View>
           </View>
