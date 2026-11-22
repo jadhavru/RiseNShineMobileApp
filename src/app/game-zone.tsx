@@ -226,20 +226,27 @@ export default function GameZoneScreen() {
         return;
       }
 
-      const { data: profiles, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .in('id', userIds);
+      // Fetch only permitted member names through the secure RPC.
+      // The RPC returns id and full_name only; no private profile fields.
+      const { data: profiles, error: profileError } = await supabase.rpc(
+        'get_member_display_names',
+        {
+          p_user_ids: userIds,
+        }
+      );
 
       if (profileError) {
-        console.log('Leaderboard profile error:', profileError.message);
+        console.log('Leaderboard profile names error:', profileError.message);
       }
+
+      const profileNameMap: Record<string, string> = {};
+      (profiles || []).forEach((profile: { id: string; full_name: string }) => {
+        profileNameMap[profile.id] = profile.full_name;
+      });
 
       const formatted = topPlayers.map((item) => ({
         ...item,
-        name:
-          profiles?.find((profile) => profile.id === item.user_id)?.full_name ||
-          'Member',
+        name: profileNameMap[item.user_id] || 'Member',
       }));
 
       setLeaderboard(formatted);
@@ -285,11 +292,6 @@ if (error) {
   console.log('Score save error:', error.message);
   return;
 }
-
-      if (error) {
-         
-        return;
-      }
 
       // Best score is calculated from all attempts.
       const { data: bestData, error: bestError } = await supabase
